@@ -78,4 +78,7 @@ extern void gen_pool_for_each_chunk(struct gen_pool *,
 	void (*)(struct gen_pool *, struct gen_pool_chunk *, void *), void *);
 extern size_t gen_pool_avail(struct gen_pool *);
 extern size_t gen_pool_size(struct gen_pool *);
+unsigned long __must_check
+gen_pool_alloc_aligned(struct gen_pool *pool, size_t size,
+                       unsigned alignment_order);
 #endif /* __GENALLOC_H__ */

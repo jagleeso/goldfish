@@ -31,13 +31,22 @@
 static unsigned long tcm_code_offset;
 static unsigned long tcm_code_size; 
 
+static void * get_tcm_code_offset(void)
+{
+    return (void *) tcm_code_offset;
+}
+EXPORT_SYMBOL(get_tcm_code_offset);
+
 static struct gen_pool * tcm_code_pool = NULL;
 static int __init tcm_code_pool_init(void)
 {
     int ret;
 
 #ifndef CONFIG_DEBUG_TCM_HEAP
-    tcm_code_offset = UL(0XFA01B000);
+    /* tcm_code_offset = UL(0XFA01B000); */
+    /* Make it 8K aligned?
+     */
+    tcm_code_offset = UL(0XFA01C000);
     tcm_code_size = (160*SZ_1K);
 #else
     /* Allocate some physically contiguous pages.
@@ -132,4 +141,3 @@ failure:
 }
 
 core_initcall(setup_tcm_memory);
-

@@ -1617,6 +1617,10 @@ struct task_struct {
 #ifdef CONFIG_HAVE_HW_BREAKPOINT
 	atomic_t ptrace_bp_refcnt;
 #endif
+#ifdef CONFIG_TCM_HEAP
+    /* Process stack / heap allocated from TCM memory */
+    int tcm_resident;
+#endif
 };
 
 /* Future-safe accessor for struct task_struct's cpus_allowed. */

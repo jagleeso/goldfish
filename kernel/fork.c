@@ -68,6 +68,9 @@
 #include <linux/oom.h>
 #include <linux/khugepaged.h>
 #include <linux/signalfd.h>
+#ifdef CONFIG_TCM_HEAP
+#include <linux/tcm_heap.h>
+#endif
 
 #include <asm/pgtable.h>
 #include <asm/pgalloc.h>
@@ -121,6 +124,8 @@ static struct kmem_cache *task_struct_cachep;
 #endif
 
 #ifndef __HAVE_ARCH_THREAD_INFO_ALLOCATOR
+/* static int blah = 0; */
+/* EXPORT_SYMBOL(blah); */
 static struct thread_info *alloc_thread_info_node(struct task_struct *tsk,
 						  int node)
 {
@@ -129,13 +134,36 @@ static struct thread_info *alloc_thread_info_node(struct task_struct *tsk,
 #else
 	gfp_t mask = GFP_KERNEL;
 #endif
-	struct page *page = alloc_pages_node(node, mask, THREAD_SIZE_ORDER);
+    struct page * page;
+#ifdef CONFIG_TCM_HEAP
+/* #if 0 */
+    // FAIL?
+    if (unlikely(tsk->tcm_resident)) {
+        struct thread_info * ti = (struct thread_info *) tcm_code_alloc_aligned(THREAD_SIZE, THREAD_SIZE_ORDER);
+        MY_PRINTK("%s:%i @ %s:\n" 
+               "  ti = 0x%p\n"
+            , __FILE__, __LINE__, __func__
+            , (void *) ti
+            );
+        /* blah = 1; */
+    }
+#endif
+
+	page = alloc_pages_node(node, mask, THREAD_SIZE_ORDER);
 
 	return page ? page_address(page) : NULL;
 }
 
 static inline void free_thread_info(struct thread_info *ti)
 {
+#ifdef CONFIG_TCM_HEAP
+/* #if 0 */
+    if (unlikely(ti != NULL && ti->task != NULL && ti->task->tcm_resident)) {
+        tcm_code_free(ti, THREAD_SIZE);
+        return;
+        /* blah = 1; */
+    }
+#endif
 	free_pages((unsigned long)ti, THREAD_SIZE_ORDER);
 }
 #endif
@@ -283,6 +311,15 @@ static struct task_struct *dup_task_struct(struct task_struct *orig)
 	if (!tsk)
 		return NULL;
 
+/* #if 0 */
+#ifdef CONFIG_TCM_HEAP
+    if (orig == NULL) {
+        tsk->tcm_resident = 0;
+    } else {
+        tsk->tcm_resident = orig->tcm_resident;
+    }
+#endif
+
 	ti = alloc_thread_info_node(tsk, node);
 	if (!ti) {
 		free_task_struct(tsk);
@@ -294,6 +331,21 @@ static struct task_struct *dup_task_struct(struct task_struct *orig)
 		goto out;
 
 	tsk->stack = ti;
+#ifdef CONFIG_TCM_HEAP
+    if (tsk->tcm_resident) {
+        /* Dies in the process of printing this...
+         *
+           [   38.721043] proc initializedkernel/fork.c:333 @ dup_task_struct:
+           [   38.721287] L2 Error detected!
+           [   38.721348] Unable to handle kernel NULL pointer dereference at virtual address 0000014c
+         */
+        MY_PRINTK("%s:%i @ %s:\n" 
+               "  tsk->stack = 0x%p\n"
+            , __FILE__, __LINE__, __func__
+            , (void *) tsk->stack
+            );
+    }
+#endif
 
 	setup_thread_stack(tsk, orig);
 	clear_user_return_notifier(tsk);

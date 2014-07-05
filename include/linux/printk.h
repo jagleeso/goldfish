@@ -3,6 +3,10 @@
 
 #include <linux/init.h>
 
+/* Make it easy to find where I add printk's in the kernel.
+ */
+#define MY_PRINTK printk
+
 extern const char linux_banner[];
 extern const char linux_proc_banner[];
 

@@ -16,6 +16,10 @@
 #include <asm/fpstate.h>
 
 #define THREAD_SIZE_ORDER	1
+/* 2^THREAD_SIZE_BYTES_ORDER        = THREAD_SIZE
+ * 2^THREAD_SIZE_ORDER       * 4096 = THREAD_SIZE
+ */
+#define THREAD_SIZE_BYTES_ORDER	13
 #define THREAD_SIZE		8192
 #define THREAD_START_SP		(THREAD_SIZE - 8)
 

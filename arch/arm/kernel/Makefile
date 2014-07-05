@@ -56,7 +56,20 @@ obj-$(CONFIG_OABI_COMPAT)	+= sys_oabi-compat.o
 obj-$(CONFIG_ARM_THUMBEE)	+= thumbee.o
 obj-$(CONFIG_KGDB)		+= kgdb.o
 obj-$(CONFIG_ARM_UNWIND)	+= unwind.o
-obj-$(CONFIG_HAVE_TCM)		+= tcm.o
+ifdef CONFIG_HAVE_TCM
+	obj-$(CONFIG_HAVE_TCM)		+= tcm.o
+else
+ifdef CONFIG_TCM_HEAP
+	obj-$(CONFIG_TCM_HEAP) += tcm_heap.o
+	CFLAGS_tcm_heap.o := \
+		-Wno-unused-variable \
+		-Wno-unused-label \
+		-Wno-unused-but-set-variable \
+		-Wno-unused-function \
+		-Wno-declaration-after-statement \
+
+endif
+endif
 obj-$(CONFIG_OF)		+= devtree.o
 obj-$(CONFIG_CRASH_DUMP)	+= crash_dump.o
 obj-$(CONFIG_SWP_EMULATE)	+= swp_emulate.o

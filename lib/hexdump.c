@@ -11,6 +11,7 @@
 #include <linux/ctype.h>
 #include <linux/kernel.h>
 #include <linux/export.h>
+#include <linux/seq_file.h>
 
 const char hex_asc[] = "0123456789abcdef";
 EXPORT_SYMBOL(hex_asc);
@@ -161,6 +162,71 @@ nil:
 }
 EXPORT_SYMBOL(hex_dump_to_buffer);
 
+void print_hex_dump_with( void (*print_hex_line)(
+            void * args,
+            int prefix_type, const char *level, const char *prefix_str,
+            const u8 *ptr, int i, unsigned char * linebuf
+            ), 
+        void * args,
+        const char *level, const char *prefix_str, int prefix_type,
+        int rowsize, int groupsize,
+        const void *buf, size_t len, bool ascii)
+{
+	const u8 *ptr = buf;
+	int i, linelen, remaining = len;
+	unsigned char linebuf[32 * 3 + 2 + 32 + 1];
+
+	if (rowsize != 16 && rowsize != 32)
+		rowsize = 16;
+
+	for (i = 0; i < len; i += rowsize) {
+		linelen = min(remaining, rowsize);
+		remaining -= rowsize;
+
+		hex_dump_to_buffer(ptr + i, linelen, rowsize, groupsize,
+				   linebuf, sizeof(linebuf), ascii);
+
+        print_hex_line(args, prefix_type, level, prefix_str, ptr, i, linebuf);
+
+	}
+}
+EXPORT_SYMBOL(print_hex_dump_with);
+
+void seq_hex_line (
+        void * args,
+        int prefix_type, const char *level, const char *prefix_str,
+        const u8 *ptr, int i, unsigned char * linebuf
+        ) {
+
+    struct seq_file * seq = (struct seq_file *) args;
+
+    switch (prefix_type) {
+    case DUMP_PREFIX_ADDRESS:
+        seq_printf(seq, "%s%s%p: %s\n",
+               level, prefix_str, ptr + i, linebuf);
+        break;
+    case DUMP_PREFIX_OFFSET:
+        seq_printf(seq, "%s%s%.8x: %s\n", level, prefix_str, i, linebuf);
+        break;
+    default:
+        seq_printf(seq, "%s%s%s\n", level, prefix_str, linebuf);
+        break;
+    }
+
+}
+void seq_hex_dump_bytes(
+        struct seq_file * seq,
+        const char *prefix_str, int prefix_type,
+        const void *buf, size_t len)
+{
+    print_hex_dump_with(seq_hex_line,
+            seq,
+            KERN_DEBUG, prefix_str, prefix_type,
+            16, 1,
+            buf, len, true);
+}
+EXPORT_SYMBOL(seq_hex_dump_bytes);
+
 #ifdef CONFIG_PRINTK
 /**
  * print_hex_dump - print a text hex dump to syslog for a binary blob of data
@@ -193,23 +259,11 @@ EXPORT_SYMBOL(hex_dump_to_buffer);
  * Example output using %DUMP_PREFIX_ADDRESS and 4-byte mode:
  * ffffffff88089af0: 73727170 77767574 7b7a7978 7f7e7d7c  pqrstuvwxyz{|}~.
  */
-void print_hex_dump(const char *level, const char *prefix_str, int prefix_type,
-		    int rowsize, int groupsize,
-		    const void *buf, size_t len, bool ascii)
-{
-	const u8 *ptr = buf;
-	int i, linelen, remaining = len;
-	unsigned char linebuf[32 * 3 + 2 + 32 + 1];
-
-	if (rowsize != 16 && rowsize != 32)
-		rowsize = 16;
-
-	for (i = 0; i < len; i += rowsize) {
-		linelen = min(remaining, rowsize);
-		remaining -= rowsize;
-
-		hex_dump_to_buffer(ptr + i, linelen, rowsize, groupsize,
-				   linebuf, sizeof(linebuf), ascii);
+void printk_hex_line (
+        void * args,
+        int prefix_type, const char *level, const char *prefix_str,
+        const u8 *ptr, int i, unsigned char * linebuf
+        ) {
 
 		switch (prefix_type) {
 		case DUMP_PREFIX_ADDRESS:
@@ -223,7 +277,17 @@ void print_hex_dump(const char *level, const char *prefix_str, int prefix_type,
 			printk("%s%s%s\n", level, prefix_str, linebuf);
 			break;
 		}
-	}
+
+}
+void print_hex_dump(const char *level, const char *prefix_str, int prefix_type,
+		    int rowsize, int groupsize,
+		    const void *buf, size_t len, bool ascii)
+{
+    print_hex_dump_with(printk_hex_line,
+            NULL,
+            level, prefix_str, prefix_type,
+            rowsize, groupsize,
+            buf, len, ascii);
 }
 EXPORT_SYMBOL(print_hex_dump);
 
