@@ -264,7 +264,7 @@ out_put_alg:
 static void crypto_cbc_free(struct crypto_instance *inst)
 {
 	crypto_drop_spawn(crypto_instance_ctx(inst));
-	kfree(inst);
+	crypto_kfree(inst);
 }
 
 static struct crypto_template crypto_cbc_tmpl = {

@@ -34,6 +34,10 @@ struct kthread_create_info
 	struct completion done;
 
 	struct list_head list;
+
+#ifdef CONFIG_TCM_HEAP
+    int tcm_resident;
+#endif
 };
 
 struct kthread {
@@ -137,12 +141,22 @@ int tsk_fork_get_node(struct task_struct *tsk)
 static void create_kthread(struct kthread_create_info *create)
 {
 	int pid;
+#ifdef CONFIG_TCM_HEAP
+    int old_tcm_resident;
+#endif
 
 #ifdef CONFIG_NUMA
 	current->pref_node_fork = create->node;
 #endif
 	/* We want our own signal handler (we take no signals by default). */
+#ifdef CONFIG_TCM_HEAP
+    old_tcm_resident = current->tcm_resident;
+    current->tcm_resident = create->tcm_resident;
+#endif
 	pid = kernel_thread(kthread, create, CLONE_FS | CLONE_FILES | SIGCHLD);
+#ifdef CONFIG_TCM_HEAP
+    current->tcm_resident = old_tcm_resident;
+#endif
 	if (pid < 0) {
 		create->result = ERR_PTR(pid);
 		complete(&create->done);
@@ -182,6 +196,9 @@ struct task_struct *kthread_create_on_node(int (*threadfn)(void *data),
 	create.threadfn = threadfn;
 	create.data = data;
 	create.node = node;
+#ifdef CONFIG_TCM_HEAP
+    create.tcm_resident = current->tcm_resident;
+#endif
 	init_completion(&create.done);
 
 	spin_lock(&kthread_create_lock);

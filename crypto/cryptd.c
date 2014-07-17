@@ -283,7 +283,7 @@ static void *cryptd_alloc_instance(struct crypto_alg *alg, unsigned int head,
 	struct crypto_instance *inst;
 	int err;
 
-	p = kzalloc(head + sizeof(*inst) + tail, GFP_KERNEL);
+	p = crypto_kzalloc(head + sizeof(*inst) + tail, GFP_KERNEL);
 	if (!p)
 		return ERR_PTR(-ENOMEM);
 
@@ -304,7 +304,7 @@ out:
 	return p;
 
 out_free_inst:
-	kfree(p);
+	crypto_kfree(p);
 	p = ERR_PTR(err);
 	goto out;
 }
@@ -358,7 +358,7 @@ static int cryptd_create_blkcipher(struct crypto_template *tmpl,
 	if (err) {
 		crypto_drop_spawn(&ctx->spawn);
 out_free_inst:
-		kfree(inst);
+		crypto_kfree(inst);
 	}
 
 out_put_alg:
@@ -614,7 +614,7 @@ static int cryptd_create_hash(struct crypto_template *tmpl, struct rtattr **tb,
 	if (err) {
 		crypto_drop_shash(&ctx->spawn);
 out_free_inst:
-		kfree(inst);
+		crypto_kfree(inst);
 	}
 
 out_put_alg:
@@ -753,7 +753,7 @@ static int cryptd_create_aead(struct crypto_template *tmpl,
 	if (err) {
 		crypto_drop_spawn(&ctx->aead_spawn.base);
 out_free_inst:
-		kfree(inst);
+		crypto_kfree(inst);
 	}
 out_put_alg:
 	crypto_mod_put(alg);
@@ -791,15 +791,15 @@ static void cryptd_free(struct crypto_instance *inst)
 	switch (inst->alg.cra_flags & CRYPTO_ALG_TYPE_MASK) {
 	case CRYPTO_ALG_TYPE_AHASH:
 		crypto_drop_shash(&hctx->spawn);
-		kfree(ahash_instance(inst));
+		crypto_kfree(ahash_instance(inst));
 		return;
 	case CRYPTO_ALG_TYPE_AEAD:
 		crypto_drop_spawn(&aead_ctx->aead_spawn.base);
-		kfree(inst);
+		crypto_kfree(inst);
 		return;
 	default:
 		crypto_drop_spawn(&ctx->spawn);
-		kfree(inst);
+		crypto_kfree(inst);
 	}
 }
 

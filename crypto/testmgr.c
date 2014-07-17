@@ -1251,7 +1251,7 @@ static int test_cprng(struct crypto_rng *tfm, struct cprng_testvec *template,
 
 	seedsize = crypto_rng_seedsize(tfm);
 
-	seed = kmalloc(seedsize, GFP_KERNEL);
+	seed = crypto_kmalloc(seedsize, GFP_KERNEL);
 	if (!seed) {
 		printk(KERN_ERR "alg: cprng: Failed to allocate seed space "
 		       "for %s\n", algo);
@@ -1298,7 +1298,7 @@ static int test_cprng(struct crypto_rng *tfm, struct cprng_testvec *template,
 	}
 
 out:
-	kfree(seed);
+	crypto_kfree(seed);
 	return err;
 }
 

@@ -233,7 +233,7 @@ out:
 	return larval;
 
 free_larval:
-	kfree(larval);
+	crypto_kfree(larval);
 err:
 	larval = ERR_PTR(ret);
 	goto out;
@@ -802,7 +802,7 @@ void *crypto_alloc_instance2(const char *name, struct crypto_alg *alg,
 	char *p;
 	int err;
 
-	p = kzalloc(head + sizeof(*inst) + sizeof(struct crypto_spawn),
+	p = crypto_kzalloc(head + sizeof(*inst) + sizeof(struct crypto_spawn),
 		    GFP_KERNEL);
 	if (!p)
 		return ERR_PTR(-ENOMEM);
@@ -821,7 +821,7 @@ void *crypto_alloc_instance2(const char *name, struct crypto_alg *alg,
 	return p;
 
 err_free_inst:
-	kfree(p);
+	crypto_kfree(p);
 	return ERR_PTR(err);
 }
 EXPORT_SYMBOL_GPL(crypto_alloc_instance2);
@@ -847,7 +847,7 @@ struct crypto_instance *crypto_alloc_instance(const char *name,
 	return inst;
 
 err_free_inst:
-	kfree(inst);
+	crypto_kfree(inst);
 	inst = ERR_PTR(err);
 
 out:

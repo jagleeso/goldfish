@@ -611,7 +611,7 @@ static struct crypto_instance *crypto_authenc_alloc(struct rtattr **tb)
 	if (IS_ERR(enc_name))
 		goto out_put_auth;
 
-	inst = kzalloc(sizeof(*inst) + sizeof(*ctx), GFP_KERNEL);
+	inst = crypto_kzalloc(sizeof(*inst) + sizeof(*ctx), GFP_KERNEL);
 	err = -ENOMEM;
 	if (!inst)
 		goto out_put_auth;
@@ -672,7 +672,7 @@ err_drop_enc:
 err_drop_auth:
 	crypto_drop_ahash(&ctx->auth);
 err_free_inst:
-	kfree(inst);
+	crypto_kfree(inst);
 out_put_auth:
 	inst = ERR_PTR(err);
 	goto out;
@@ -684,7 +684,7 @@ static void crypto_authenc_free(struct crypto_instance *inst)
 
 	crypto_drop_skcipher(&ctx->enc);
 	crypto_drop_ahash(&ctx->auth);
-	kfree(inst);
+	crypto_kfree(inst);
 }
 
 static struct crypto_template crypto_authenc_tmpl = {

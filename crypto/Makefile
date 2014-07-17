@@ -96,3 +96,11 @@ obj-$(CONFIG_CRYPTO_USER_API_SKCIPHER) += algif_skcipher.o
 #
 obj-$(CONFIG_XOR_BLOCKS) += xor.o
 obj-$(CONFIG_ASYNC_CORE) += async_tx/
+
+obj-$(CONFIG_CRYPTO) += secure_alloc.o
+CFLAGS_secure_alloc.o := \
+	-Wno-unused-variable \
+	-Wno-unused-label \
+	-Wno-unused-but-set-variable \
+	-Wno-unused-function \
+	-Wno-declaration-after-statement \

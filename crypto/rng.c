@@ -35,7 +35,7 @@ static int rngapi_reset(struct crypto_rng *tfm, u8 *seed, unsigned int slen)
 	int err;
 
 	if (!seed && slen) {
-		buf = kmalloc(slen, GFP_KERNEL);
+		buf = crypto_kmalloc(slen, GFP_KERNEL);
 		if (!buf)
 			return -ENOMEM;
 
@@ -45,7 +45,7 @@ static int rngapi_reset(struct crypto_rng *tfm, u8 *seed, unsigned int slen)
 
 	err = crypto_rng_alg(tfm)->rng_reset(tfm, seed, slen);
 
-	kfree(buf);
+	crypto_kfree(buf);
 	return err;
 }
 

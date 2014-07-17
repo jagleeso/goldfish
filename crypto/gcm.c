@@ -122,7 +122,7 @@ static int crypto_gcm_setkey(struct crypto_aead *aead, const u8 *key,
 	crypto_aead_set_flags(aead, crypto_ablkcipher_get_flags(ctr) &
 				       CRYPTO_TFM_RES_MASK);
 
-	data = kzalloc(sizeof(*data) + crypto_ablkcipher_reqsize(ctr),
+	data = crypto_kzalloc(sizeof(*data) + crypto_ablkcipher_reqsize(ctr),
 		       GFP_KERNEL);
 	if (!data)
 		return -ENOMEM;
@@ -156,7 +156,7 @@ static int crypto_gcm_setkey(struct crypto_aead *aead, const u8 *key,
 			      CRYPTO_TFM_RES_MASK);
 
 out:
-	kfree(data);
+	crypto_kfree(data);
 	return err;
 }
 
@@ -716,7 +716,7 @@ static struct crypto_instance *crypto_gcm_alloc_common(struct rtattr **tb,
 		return ERR_PTR(err);
 
 	err = -ENOMEM;
-	inst = kzalloc(sizeof(*inst) + sizeof(*ctx), GFP_KERNEL);
+	inst = crypto_kzalloc(sizeof(*inst) + sizeof(*ctx), GFP_KERNEL);
 	if (!inst)
 		goto out_put_ghash;
 
@@ -779,7 +779,7 @@ out_put_ctr:
 err_drop_ghash:
 	crypto_drop_ahash(&ctx->ghash);
 err_free_inst:
-	kfree(inst);
+	crypto_kfree(inst);
 out_put_ghash:
 	inst = ERR_PTR(err);
 	goto out;
@@ -814,7 +814,7 @@ static void crypto_gcm_free(struct crypto_instance *inst)
 
 	crypto_drop_skcipher(&ctx->ctr);
 	crypto_drop_ahash(&ctx->ghash);
-	kfree(inst);
+	crypto_kfree(inst);
 }
 
 static struct crypto_template crypto_gcm_tmpl = {
@@ -983,7 +983,7 @@ static struct crypto_instance *crypto_rfc4106_alloc(struct rtattr **tb)
 	if (IS_ERR(ccm_name))
 		return ERR_PTR(err);
 
-	inst = kzalloc(sizeof(*inst) + sizeof(*spawn), GFP_KERNEL);
+	inst = crypto_kzalloc(sizeof(*inst) + sizeof(*spawn), GFP_KERNEL);
 	if (!inst)
 		return ERR_PTR(-ENOMEM);
 
@@ -1042,7 +1042,7 @@ out:
 out_drop_alg:
 	crypto_drop_aead(spawn);
 out_free_inst:
-	kfree(inst);
+	crypto_kfree(inst);
 	inst = ERR_PTR(err);
 	goto out;
 }
@@ -1050,7 +1050,7 @@ out_free_inst:
 static void crypto_rfc4106_free(struct crypto_instance *inst)
 {
 	crypto_drop_spawn(crypto_instance_ctx(inst));
-	kfree(inst);
+	crypto_kfree(inst);
 }
 
 static struct crypto_template crypto_rfc4106_tmpl = {
@@ -1234,7 +1234,7 @@ static struct crypto_instance *crypto_rfc4543_alloc(struct rtattr **tb)
 	if (IS_ERR(ccm_name))
 		return ERR_PTR(err);
 
-	inst = kzalloc(sizeof(*inst) + sizeof(*spawn), GFP_KERNEL);
+	inst = crypto_kzalloc(sizeof(*inst) + sizeof(*spawn), GFP_KERNEL);
 	if (!inst)
 		return ERR_PTR(-ENOMEM);
 
@@ -1293,7 +1293,7 @@ out:
 out_drop_alg:
 	crypto_drop_aead(spawn);
 out_free_inst:
-	kfree(inst);
+	crypto_kfree(inst);
 	inst = ERR_PTR(err);
 	goto out;
 }
@@ -1301,7 +1301,7 @@ out_free_inst:
 static void crypto_rfc4543_free(struct crypto_instance *inst)
 {
 	crypto_drop_spawn(crypto_instance_ctx(inst));
-	kfree(inst);
+	crypto_kfree(inst);
 }
 
 static struct crypto_template crypto_rfc4543_tmpl = {
@@ -1315,7 +1315,7 @@ static int __init crypto_gcm_module_init(void)
 {
 	int err;
 
-	gcm_zeroes = kzalloc(16, GFP_KERNEL);
+	gcm_zeroes = crypto_kzalloc(16, GFP_KERNEL);
 	if (!gcm_zeroes)
 		return -ENOMEM;
 
@@ -1344,13 +1344,13 @@ out_undo_gcm:
 out_undo_base:
 	crypto_unregister_template(&crypto_gcm_base_tmpl);
 out:
-	kfree(gcm_zeroes);
+	crypto_kfree(gcm_zeroes);
 	return err;
 }
 
 static void __exit crypto_gcm_module_exit(void)
 {
-	kfree(gcm_zeroes);
+	crypto_kfree(gcm_zeroes);
 	crypto_unregister_template(&crypto_rfc4543_tmpl);
 	crypto_unregister_template(&crypto_rfc4106_tmpl);
 	crypto_unregister_template(&crypto_gcm_tmpl);

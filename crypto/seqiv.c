@@ -44,7 +44,7 @@ static void seqiv_complete2(struct skcipher_givcrypt_request *req, int err)
 	memcpy(req->creq.info, subreq->info, crypto_ablkcipher_ivsize(geniv));
 
 out:
-	kfree(subreq->info);
+	crypto_kfree(subreq->info);
 }
 
 static void seqiv_complete(struct crypto_async_request *base, int err)
@@ -70,7 +70,7 @@ static void seqiv_aead_complete2(struct aead_givcrypt_request *req, int err)
 	memcpy(req->areq.iv, subreq->iv, crypto_aead_ivsize(geniv));
 
 out:
-	kfree(subreq->iv);
+	crypto_kfree(subreq->iv);
 }
 
 static void seqiv_aead_complete(struct crypto_async_request *base, int err)
@@ -116,7 +116,7 @@ static int seqiv_givencrypt(struct skcipher_givcrypt_request *req)
 
 	if (unlikely(!IS_ALIGNED((unsigned long)info,
 				 crypto_ablkcipher_alignmask(geniv) + 1))) {
-		info = kmalloc(ivsize, req->creq.base.flags &
+		info = crypto_kmalloc(ivsize, req->creq.base.flags &
 				       CRYPTO_TFM_REQ_MAY_SLEEP ? GFP_KERNEL:
 								  GFP_ATOMIC);
 		if (!info)
@@ -162,7 +162,7 @@ static int seqiv_aead_givencrypt(struct aead_givcrypt_request *req)
 
 	if (unlikely(!IS_ALIGNED((unsigned long)info,
 				 crypto_aead_alignmask(geniv) + 1))) {
-		info = kmalloc(ivsize, areq->base.flags &
+		info = crypto_kmalloc(ivsize, areq->base.flags &
 				       CRYPTO_TFM_REQ_MAY_SLEEP ? GFP_KERNEL:
 								  GFP_ATOMIC);
 		if (!info)

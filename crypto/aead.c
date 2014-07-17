@@ -36,7 +36,7 @@ static int setkey_unaligned(struct crypto_aead *tfm, const u8 *key,
 	unsigned long absize;
 
 	absize = keylen + alignmask;
-	buffer = kmalloc(absize, GFP_ATOMIC);
+	buffer = crypto_kmalloc(absize, GFP_ATOMIC);
 	if (!buffer)
 		return -ENOMEM;
 
@@ -44,7 +44,7 @@ static int setkey_unaligned(struct crypto_aead *tfm, const u8 *key,
 	memcpy(alignbuffer, key, keylen);
 	ret = aead->setkey(tfm, alignbuffer, keylen);
 	memset(alignbuffer, 0, keylen);
-	kfree(buffer);
+	crypto_kfree(buffer);
 	return ret;
 }
 
@@ -295,7 +295,7 @@ struct crypto_instance *aead_geniv_alloc(struct crypto_template *tmpl,
 	if (IS_ERR(name))
 		return ERR_PTR(err);
 
-	inst = kzalloc(sizeof(*inst) + sizeof(*spawn), GFP_KERNEL);
+	inst = crypto_kzalloc(sizeof(*inst) + sizeof(*spawn), GFP_KERNEL);
 	if (!inst)
 		return ERR_PTR(-ENOMEM);
 
@@ -361,7 +361,7 @@ out:
 err_drop_alg:
 	crypto_drop_aead(spawn);
 err_free_inst:
-	kfree(inst);
+	crypto_kfree(inst);
 	inst = ERR_PTR(err);
 	goto out;
 }
@@ -370,7 +370,7 @@ EXPORT_SYMBOL_GPL(aead_geniv_alloc);
 void aead_geniv_free(struct crypto_instance *inst)
 {
 	crypto_drop_aead(crypto_instance_ctx(inst));
-	kfree(inst);
+	crypto_kfree(inst);
 }
 EXPORT_SYMBOL_GPL(aead_geniv_free);
 

@@ -155,7 +155,7 @@ static int ahash_setkey_unaligned(struct crypto_ahash *tfm, const u8 *key,
 	unsigned long absize;
 
 	absize = keylen + alignmask;
-	buffer = kmalloc(absize, GFP_KERNEL);
+	buffer = crypto_kmalloc(absize, GFP_KERNEL);
 	if (!buffer)
 		return -ENOMEM;
 
@@ -225,7 +225,7 @@ static int ahash_op_unaligned(struct ahash_request *req,
 	struct ahash_request_priv *priv;
 	int err;
 
-	priv = kmalloc(sizeof(*priv) + ahash_align_buffer_size(ds, alignmask),
+	priv = crypto_kmalloc(sizeof(*priv) + ahash_align_buffer_size(ds, alignmask),
 		       (req->base.flags & CRYPTO_TFM_REQ_MAY_SLEEP) ?
 		       GFP_KERNEL : GFP_ATOMIC);
 	if (!priv)
@@ -335,7 +335,7 @@ static int ahash_def_finup(struct ahash_request *req)
 	unsigned int ds = crypto_ahash_digestsize(tfm);
 	struct ahash_request_priv *priv;
 
-	priv = kmalloc(sizeof(*priv) + ahash_align_buffer_size(ds, alignmask),
+	priv = crypto_kmalloc(sizeof(*priv) + ahash_align_buffer_size(ds, alignmask),
 		       (req->base.flags & CRYPTO_TFM_REQ_MAY_SLEEP) ?
 		       GFP_KERNEL : GFP_ATOMIC);
 	if (!priv)
@@ -507,7 +507,7 @@ EXPORT_SYMBOL_GPL(ahash_register_instance);
 void ahash_free_instance(struct crypto_instance *inst)
 {
 	crypto_drop_spawn(crypto_instance_ctx(inst));
-	kfree(ahash_instance(inst));
+	crypto_kfree(ahash_instance(inst));
 }
 EXPORT_SYMBOL_GPL(ahash_free_instance);
 

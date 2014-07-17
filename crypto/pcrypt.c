@@ -312,7 +312,7 @@ static struct crypto_instance *pcrypt_alloc_instance(struct crypto_alg *alg)
 	struct pcrypt_instance_ctx *ctx;
 	int err;
 
-	inst = kzalloc(sizeof(*inst) + sizeof(*ctx), GFP_KERNEL);
+	inst = crypto_kzalloc(sizeof(*inst) + sizeof(*ctx), GFP_KERNEL);
 	if (!inst) {
 		inst = ERR_PTR(-ENOMEM);
 		goto out;
@@ -339,7 +339,7 @@ out:
 	return inst;
 
 out_free_inst:
-	kfree(inst);
+	crypto_kfree(inst);
 	inst = ERR_PTR(err);
 	goto out;
 }
@@ -402,7 +402,7 @@ static void pcrypt_free(struct crypto_instance *inst)
 	struct pcrypt_instance_ctx *ctx = crypto_instance_ctx(inst);
 
 	crypto_drop_spawn(&ctx->spawn);
-	kfree(inst);
+	crypto_kfree(inst);
 }
 
 static int pcrypt_cpumask_change_notify(struct notifier_block *self,
@@ -416,11 +416,11 @@ static int pcrypt_cpumask_change_notify(struct notifier_block *self,
 		return 0;
 
 	pcrypt = container_of(self, struct padata_pcrypt, nblock);
-	new_mask = kmalloc(sizeof(*new_mask), GFP_KERNEL);
+	new_mask = crypto_kmalloc(sizeof(*new_mask), GFP_KERNEL);
 	if (!new_mask)
 		return -ENOMEM;
 	if (!alloc_cpumask_var(&new_mask->mask, GFP_KERNEL)) {
-		kfree(new_mask);
+		crypto_kfree(new_mask);
 		return -ENOMEM;
 	}
 
@@ -431,7 +431,7 @@ static int pcrypt_cpumask_change_notify(struct notifier_block *self,
 	synchronize_rcu_bh();
 
 	free_cpumask_var(old_mask->mask);
-	kfree(old_mask);
+	crypto_kfree(old_mask);
 	return 0;
 }
 
@@ -464,11 +464,11 @@ static int pcrypt_init_padata(struct padata_pcrypt *pcrypt,
 	if (!pcrypt->pinst)
 		goto err_destroy_workqueue;
 
-	mask = kmalloc(sizeof(*mask), GFP_KERNEL);
+	mask = crypto_kmalloc(sizeof(*mask), GFP_KERNEL);
 	if (!mask)
 		goto err_free_padata;
 	if (!alloc_cpumask_var(&mask->mask, GFP_KERNEL)) {
-		kfree(mask);
+		crypto_kfree(mask);
 		goto err_free_padata;
 	}
 
@@ -492,7 +492,7 @@ err_unregister_notifier:
 	padata_unregister_cpumask_notifier(pcrypt->pinst, &pcrypt->nblock);
 err_free_cpumask:
 	free_cpumask_var(mask->mask);
-	kfree(mask);
+	crypto_kfree(mask);
 err_free_padata:
 	padata_free(pcrypt->pinst);
 err_destroy_workqueue:
@@ -506,7 +506,7 @@ err:
 static void pcrypt_fini_padata(struct padata_pcrypt *pcrypt)
 {
 	free_cpumask_var(pcrypt->cb_cpumask->mask);
-	kfree(pcrypt->cb_cpumask);
+	crypto_kfree(pcrypt->cb_cpumask);
 
 	padata_stop(pcrypt->pinst);
 	padata_unregister_cpumask_notifier(pcrypt->pinst, &pcrypt->nblock);

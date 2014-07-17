@@ -107,14 +107,14 @@ static void crypto_larval_destroy(struct crypto_alg *alg)
 	BUG_ON(!crypto_is_larval(alg));
 	if (larval->adult)
 		crypto_mod_put(larval->adult);
-	kfree(larval);
+	crypto_kfree(larval);
 }
 
 struct crypto_larval *crypto_larval_alloc(const char *name, u32 type, u32 mask)
 {
 	struct crypto_larval *larval;
 
-	larval = kzalloc(sizeof(*larval), GFP_KERNEL);
+	larval = crypto_kzalloc(sizeof(*larval), GFP_KERNEL);
 	if (!larval)
 		return ERR_PTR(-ENOMEM);
 
@@ -151,7 +151,7 @@ static struct crypto_alg *crypto_larval_add(const char *name, u32 type,
 	up_write(&crypto_alg_sem);
 
 	if (alg != &larval->alg)
-		kfree(larval);
+		crypto_kfree(larval);
 
 	return alg;
 }
@@ -362,7 +362,7 @@ struct crypto_tfm *__crypto_alloc_tfm(struct crypto_alg *alg, u32 type,
 	int err = -ENOMEM;
 
 	tfm_size = sizeof(*tfm) + crypto_ctxsize(alg, type, mask);
-	tfm = kzalloc(tfm_size, GFP_KERNEL);
+	tfm = crypto_kzalloc(tfm_size, GFP_KERNEL);
 	if (tfm == NULL)
 		goto out_err;
 
@@ -382,7 +382,7 @@ cra_init_failed:
 out_free_tfm:
 	if (err == -EAGAIN)
 		crypto_shoot_alg(alg);
-	kfree(tfm);
+	crypto_kfree(tfm);
 out_err:
 	tfm = ERR_PTR(err);
 out:
@@ -458,7 +458,7 @@ void *crypto_create_tfm(struct crypto_alg *alg,
 	tfmsize = frontend->tfmsize;
 	total = tfmsize + sizeof(*tfm) + frontend->extsize(alg);
 
-	mem = kzalloc(total, GFP_KERNEL);
+	mem = crypto_kzalloc(total, GFP_KERNEL);
 	if (mem == NULL)
 		goto out_err;
 
@@ -479,7 +479,7 @@ cra_init_failed:
 out_free_tfm:
 	if (err == -EAGAIN)
 		crypto_shoot_alg(alg);
-	kfree(mem);
+	crypto_kfree(mem);
 out_err:
 	mem = ERR_PTR(err);
 out:

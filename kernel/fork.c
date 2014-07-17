@@ -124,8 +124,6 @@ static struct kmem_cache *task_struct_cachep;
 #endif
 
 #ifndef __HAVE_ARCH_THREAD_INFO_ALLOCATOR
-/* static int blah = 0; */
-/* EXPORT_SYMBOL(blah); */
 static struct thread_info *alloc_thread_info_node(struct task_struct *tsk,
 						  int node)
 {
@@ -135,17 +133,16 @@ static struct thread_info *alloc_thread_info_node(struct task_struct *tsk,
 	gfp_t mask = GFP_KERNEL;
 #endif
     struct page * page;
-#ifdef CONFIG_TCM_HEAP
 /* #if 0 */
-    // FAIL?
+#ifdef CONFIG_TCM_HEAP
     if (unlikely(tsk->tcm_resident)) {
-        struct thread_info * ti = (struct thread_info *) tcm_code_alloc_aligned(THREAD_SIZE, THREAD_SIZE_ORDER);
+        struct thread_info * ti = (struct thread_info *) tcm_code_alloc_aligned(THREAD_SIZE, THREAD_SIZE_BYTES_ORDER);
         MY_PRINTK("%s:%i @ %s:\n" 
                "  ti = 0x%p\n"
             , __FILE__, __LINE__, __func__
             , (void *) ti
             );
-        /* blah = 1; */
+        return ti;
     }
 #endif
 
@@ -156,12 +153,11 @@ static struct thread_info *alloc_thread_info_node(struct task_struct *tsk,
 
 static inline void free_thread_info(struct thread_info *ti)
 {
-#ifdef CONFIG_TCM_HEAP
 /* #if 0 */
+#ifdef CONFIG_TCM_HEAP
     if (unlikely(ti != NULL && ti->task != NULL && ti->task->tcm_resident)) {
-        tcm_code_free(ti, THREAD_SIZE);
+        tcm_code_free(ti);
         return;
-        /* blah = 1; */
     }
 #endif
 	free_pages((unsigned long)ti, THREAD_SIZE_ORDER);
@@ -191,7 +187,26 @@ static ATOMIC_NOTIFIER_HEAD(task_free_notifier);
 
 static void account_kernel_stack(struct thread_info *ti, int account)
 {
-	struct zone *zone = page_zone(virt_to_page(ti));
+    struct zone *zone;
+
+    /* On Nexus 4: 
+     *
+     * If we have ti->task->tcm_resident (and CONFIG_DEBUG_TCM) and we skip 
+     * mod_zone_page_state, the phone locks up.
+     *
+     * WHY?
+     */
+/* #ifdef CONFIG_TCM_HEAP */
+/*     if (ti->task->tcm_resident) { */
+/*         MY_PRINTK("%s:%i @ %s:\n"  */
+/*                "  skipping with account_kernel_stack\n" */
+/*             , __FILE__, __LINE__, __func__ */
+/*             ); */
+/*         return; */
+/*     } */
+/* #endif */
+
+	zone = page_zone(virt_to_page(ti));
 
 	mod_zone_page_state(zone, NR_KERNEL_STACK, account);
 }
@@ -311,7 +326,6 @@ static struct task_struct *dup_task_struct(struct task_struct *orig)
 	if (!tsk)
 		return NULL;
 
-/* #if 0 */
 #ifdef CONFIG_TCM_HEAP
     if (orig == NULL) {
         tsk->tcm_resident = 0;

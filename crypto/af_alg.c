@@ -69,7 +69,7 @@ int af_alg_register_type(const struct af_alg_type *type)
 			goto unlock;
 	}
 
-	node = kmalloc(sizeof(*node), GFP_KERNEL);
+	node = crypto_kmalloc(sizeof(*node), GFP_KERNEL);
 	err = -ENOMEM;
 	if (!node)
 		goto unlock;
@@ -97,7 +97,7 @@ int af_alg_unregister_type(const struct af_alg_type *type)
 			continue;
 
 		list_del(&node->list);
-		kfree(node);
+		crypto_kfree(node);
 		err = 0;
 		break;
 	}

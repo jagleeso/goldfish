@@ -16,6 +16,7 @@
 #include <linux/list.h>
 #include <linux/kernel.h>
 #include <linux/skbuff.h>
+#include "secure_alloc.h"
 
 struct module;
 struct rtattr;

@@ -40,7 +40,7 @@ static int shash_setkey_unaligned(struct crypto_shash *tfm, const u8 *key,
 	int err;
 
 	absize = keylen + (alignmask & ~(crypto_tfm_ctx_alignment() - 1));
-	buffer = kmalloc(absize, GFP_KERNEL);
+	buffer = crypto_kmalloc(absize, GFP_KERNEL);
 	if (!buffer)
 		return -ENOMEM;
 
@@ -468,7 +468,7 @@ static int crypto_init_shash_ops_compat(struct crypto_tfm *tfm)
 		return PTR_ERR(shash);
 	}
 
-	desc = kmalloc(sizeof(*desc) + crypto_shash_descsize(shash),
+	desc = crypto_kmalloc(sizeof(*desc) + crypto_shash_descsize(shash),
 		       GFP_KERNEL);
 	if (!desc) {
 		crypto_free_shash(shash);
@@ -645,7 +645,7 @@ EXPORT_SYMBOL_GPL(shash_register_instance);
 void shash_free_instance(struct crypto_instance *inst)
 {
 	crypto_drop_spawn(crypto_instance_ctx(inst));
-	kfree(shash_instance(inst));
+	crypto_kfree(shash_instance(inst));
 }
 EXPORT_SYMBOL_GPL(shash_free_instance);
 

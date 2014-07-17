@@ -55,7 +55,7 @@ void __ablkcipher_walk_complete(struct ablkcipher_walk *walk)
 	list_for_each_entry_safe(p, tmp, &walk->buffers, entry) {
 		ablkcipher_buffer_write(p);
 		list_del(&p->entry);
-		kfree(p);
+		crypto_kfree(p);
 	}
 }
 EXPORT_SYMBOL_GPL(__ablkcipher_walk_complete);
@@ -143,7 +143,7 @@ err:
 
 	if (walk->iv != req->info)
 		memcpy(req->info, walk->iv, tfm->crt_ablkcipher.ivsize);
-	kfree(walk->iv_buffer);
+	crypto_kfree(walk->iv_buffer);
 
 	return err;
 }
@@ -164,7 +164,7 @@ static inline int ablkcipher_next_slow(struct ablkcipher_request *req,
 	n += (aligned_bsize * 3 - (alignmask + 1) +
 	      (alignmask & ~(crypto_tfm_ctx_alignment() - 1)));
 
-	p = kmalloc(n, GFP_ATOMIC);
+	p = crypto_kmalloc(n, GFP_ATOMIC);
 	if (!p)
 		return ablkcipher_walk_done(req, walk, -ENOMEM);
 
@@ -201,7 +201,7 @@ static inline int ablkcipher_copy_iv(struct ablkcipher_walk *walk,
 	u8 *iv;
 
 	size += alignmask & ~(crypto_tfm_ctx_alignment() - 1);
-	walk->iv_buffer = kmalloc(size, GFP_ATOMIC);
+	walk->iv_buffer = crypto_kmalloc(size, GFP_ATOMIC);
 	if (!walk->iv_buffer)
 		return -ENOMEM;
 
@@ -316,7 +316,7 @@ static int setkey_unaligned(struct crypto_ablkcipher *tfm, const u8 *key,
 	unsigned long absize;
 
 	absize = keylen + alignmask;
-	buffer = kmalloc(absize, GFP_ATOMIC);
+	buffer = crypto_kmalloc(absize, GFP_ATOMIC);
 	if (!buffer)
 		return -ENOMEM;
 
@@ -324,7 +324,7 @@ static int setkey_unaligned(struct crypto_ablkcipher *tfm, const u8 *key,
 	memcpy(alignbuffer, key, keylen);
 	ret = cipher->setkey(tfm, alignbuffer, keylen);
 	memset(alignbuffer, 0, keylen);
-	kfree(buffer);
+	crypto_kfree(buffer);
 	return ret;
 }
 

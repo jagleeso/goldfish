@@ -87,7 +87,7 @@ static int cryptomgr_probe(void *data)
 		goto err;
 
 out:
-	kfree(param);
+	crypto_kfree(param);
 	module_put_and_exit(0);
 
 err:
@@ -107,7 +107,7 @@ static int cryptomgr_schedule_probe(struct crypto_larval *larval)
 	if (!try_module_get(THIS_MODULE))
 		goto err;
 
-	param = kzalloc(sizeof(*param), GFP_KERNEL);
+	param = crypto_kzalloc(sizeof(*param), GFP_KERNEL);
 	if (!param)
 		goto err_put_module;
 
@@ -199,7 +199,7 @@ static int cryptomgr_schedule_probe(struct crypto_larval *larval)
 	return NOTIFY_STOP;
 
 err_free_param:
-	kfree(param);
+	crypto_kfree(param);
 err_put_module:
 	module_put(THIS_MODULE);
 err:
@@ -224,7 +224,7 @@ static int cryptomgr_test(void *data)
 skiptest:
 	crypto_alg_tested(param->driver, err);
 
-	kfree(param);
+	crypto_kfree(param);
 	module_put_and_exit(0);
 }
 
@@ -237,7 +237,7 @@ static int cryptomgr_schedule_test(struct crypto_alg *alg)
 	if (!try_module_get(THIS_MODULE))
 		goto err;
 
-	param = kzalloc(sizeof(*param), GFP_KERNEL);
+	param = crypto_kzalloc(sizeof(*param), GFP_KERNEL);
 	if (!param)
 		goto err_put_module;
 
@@ -264,7 +264,7 @@ static int cryptomgr_schedule_test(struct crypto_alg *alg)
 	return NOTIFY_STOP;
 
 err_free_param:
-	kfree(param);
+	crypto_kfree(param);
 err_put_module:
 	module_put(THIS_MODULE);
 err:

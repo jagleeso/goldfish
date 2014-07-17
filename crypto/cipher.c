@@ -30,7 +30,7 @@ static int setkey_unaligned(struct crypto_tfm *tfm, const u8 *key,
 	unsigned long absize;
 
 	absize = keylen + alignmask;
-	buffer = kmalloc(absize, GFP_ATOMIC);
+	buffer = crypto_kmalloc(absize, GFP_ATOMIC);
 	if (!buffer)
 		return -ENOMEM;
 
@@ -38,7 +38,7 @@ static int setkey_unaligned(struct crypto_tfm *tfm, const u8 *key,
 	memcpy(alignbuffer, key, keylen);
 	ret = cia->cia_setkey(tfm, alignbuffer, keylen);
 	memset(alignbuffer, 0, keylen);
-	kfree(buffer);
+	crypto_kfree(buffer);
 	return ret;
 
 }

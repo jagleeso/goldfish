@@ -501,7 +501,7 @@ static struct crypto_instance *crypto_ccm_alloc_common(struct rtattr **tb,
 	if (cipher->cra_blocksize != 16)
 		goto out_put_cipher;
 
-	inst = kzalloc(sizeof(*inst) + sizeof(*ictx), GFP_KERNEL);
+	inst = crypto_kzalloc(sizeof(*inst) + sizeof(*ictx), GFP_KERNEL);
 	err = -ENOMEM;
 	if (!inst)
 		goto out_put_cipher;
@@ -565,7 +565,7 @@ err_drop_ctr:
 err_drop_cipher:
 	crypto_drop_spawn(&ictx->cipher);
 err_free_inst:
-	kfree(inst);
+	crypto_kfree(inst);
 out_put_cipher:
 	inst = ERR_PTR(err);
 	goto out;
@@ -600,7 +600,7 @@ static void crypto_ccm_free(struct crypto_instance *inst)
 
 	crypto_drop_spawn(&ctx->cipher);
 	crypto_drop_skcipher(&ctx->ctr);
-	kfree(inst);
+	crypto_kfree(inst);
 }
 
 static struct crypto_template crypto_ccm_tmpl = {
@@ -772,7 +772,7 @@ static struct crypto_instance *crypto_rfc4309_alloc(struct rtattr **tb)
 	if (IS_ERR(ccm_name))
 		return ERR_PTR(err);
 
-	inst = kzalloc(sizeof(*inst) + sizeof(*spawn), GFP_KERNEL);
+	inst = crypto_kzalloc(sizeof(*inst) + sizeof(*spawn), GFP_KERNEL);
 	if (!inst)
 		return ERR_PTR(-ENOMEM);
 
@@ -831,7 +831,7 @@ out:
 out_drop_alg:
 	crypto_drop_aead(spawn);
 out_free_inst:
-	kfree(inst);
+	crypto_kfree(inst);
 	inst = ERR_PTR(err);
 	goto out;
 }
@@ -839,7 +839,7 @@ out_free_inst:
 static void crypto_rfc4309_free(struct crypto_instance *inst)
 {
 	crypto_drop_spawn(crypto_instance_ctx(inst));
-	kfree(inst);
+	crypto_kfree(inst);
 }
 
 static struct crypto_template crypto_rfc4309_tmpl = {

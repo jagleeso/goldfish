@@ -138,7 +138,7 @@ err:
 	if (walk->iv != desc->info)
 		memcpy(desc->info, walk->iv, crypto_blkcipher_ivsize(tfm));
 	if (walk->buffer != walk->page)
-		kfree(walk->buffer);
+		crypto_kfree(walk->buffer);
 	if (walk->page)
 		free_page((unsigned long)walk->page);
 
@@ -163,7 +163,7 @@ static inline int blkcipher_next_slow(struct blkcipher_desc *desc,
 
 	n = aligned_bsize * 3 - (alignmask + 1) +
 	    (alignmask & ~(crypto_tfm_ctx_alignment() - 1));
-	walk->buffer = kmalloc(n, GFP_ATOMIC);
+	walk->buffer = crypto_kmalloc(n, GFP_ATOMIC);
 	if (!walk->buffer)
 		return blkcipher_walk_done(desc, walk, -ENOMEM);
 
@@ -289,7 +289,7 @@ static inline int blkcipher_copy_iv(struct blkcipher_walk *walk,
 	u8 *iv;
 
 	size += alignmask & ~(crypto_tfm_ctx_alignment() - 1);
-	walk->buffer = kmalloc(size, GFP_ATOMIC);
+	walk->buffer = crypto_kmalloc(size, GFP_ATOMIC);
 	if (!walk->buffer)
 		return -ENOMEM;
 
@@ -368,7 +368,7 @@ static int setkey_unaligned(struct crypto_tfm *tfm, const u8 *key,
 	unsigned long absize;
 
 	absize = keylen + alignmask;
-	buffer = kmalloc(absize, GFP_ATOMIC);
+	buffer = crypto_kmalloc(absize, GFP_ATOMIC);
 	if (!buffer)
 		return -ENOMEM;
 
@@ -376,7 +376,7 @@ static int setkey_unaligned(struct crypto_tfm *tfm, const u8 *key,
 	memcpy(alignbuffer, key, keylen);
 	ret = cipher->setkey(tfm, alignbuffer, keylen);
 	memset(alignbuffer, 0, keylen);
-	kfree(buffer);
+	crypto_kfree(buffer);
 	return ret;
 }
 
@@ -601,7 +601,7 @@ struct crypto_instance *skcipher_geniv_alloc(struct crypto_template *tmpl,
 	if (IS_ERR(name))
 		return ERR_PTR(err);
 
-	inst = kzalloc(sizeof(*inst) + sizeof(*spawn), GFP_KERNEL);
+	inst = crypto_kzalloc(sizeof(*inst) + sizeof(*spawn), GFP_KERNEL);
 	if (!inst)
 		return ERR_PTR(-ENOMEM);
 
@@ -693,7 +693,7 @@ out:
 err_drop_alg:
 	crypto_drop_skcipher(spawn);
 err_free_inst:
-	kfree(inst);
+	crypto_kfree(inst);
 	inst = ERR_PTR(err);
 	goto out;
 }
@@ -702,7 +702,7 @@ EXPORT_SYMBOL_GPL(skcipher_geniv_alloc);
 void skcipher_geniv_free(struct crypto_instance *inst)
 {
 	crypto_drop_skcipher(crypto_instance_ctx(inst));
-	kfree(inst);
+	crypto_kfree(inst);
 }
 EXPORT_SYMBOL_GPL(skcipher_geniv_free);
 
