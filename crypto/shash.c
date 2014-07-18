@@ -47,7 +47,7 @@ static int shash_setkey_unaligned(struct crypto_shash *tfm, const u8 *key,
 	alignbuffer = (u8 *)ALIGN((unsigned long)buffer, alignmask + 1);
 	memcpy(alignbuffer, key, keylen);
 	err = shash->setkey(tfm, alignbuffer, keylen);
-	kzfree(buffer);
+	crypto_kzfree(buffer);
 	return err;
 }
 
@@ -447,7 +447,7 @@ static void crypto_exit_shash_ops_compat(struct crypto_tfm *tfm)
 	struct shash_desc *desc = *descp;
 
 	crypto_free_shash(desc->tfm);
-	kzfree(desc);
+	crypto_kzfree(desc);
 }
 
 static int crypto_init_shash_ops_compat(struct crypto_tfm *tfm)

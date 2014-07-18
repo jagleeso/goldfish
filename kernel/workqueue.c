@@ -261,6 +261,11 @@ EXPORT_SYMBOL_GPL(system_unbound_wq);
 EXPORT_SYMBOL_GPL(system_freezable_wq);
 EXPORT_SYMBOL_GPL(system_nrt_freezable_wq);
 
+#ifdef CONFIG_TCM_WORKQUEUE
+struct workqueue_struct *system_tcm_wq __read_mostly;
+EXPORT_SYMBOL_GPL(system_tcm_wq);
+#endif
+
 #define CREATE_TRACE_POINTS
 #include <trace/events/workqueue.h>
 
@@ -268,17 +273,22 @@ EXPORT_SYMBOL_GPL(system_nrt_freezable_wq);
 	for (i = 0; i < BUSY_WORKER_HASH_SIZE; i++)			\
 		hlist_for_each_entry(worker, pos, &gcwq->busy_hash[i], hentry)
 
+#define __SW_BIT_CPU 0
+#define __SW_BIT_CPU_UNBOUND 1
+#define __SW_BIT_TCM 2
 static inline int __next_gcwq_cpu(int cpu, const struct cpumask *mask,
 				  unsigned int sw)
 {
 	if (cpu < nr_cpu_ids) {
-		if (sw & 1) {
+		if (sw & (1 << __SW_BIT_CPU)) {
 			cpu = cpumask_next(cpu, mask);
 			if (cpu < nr_cpu_ids)
 				return cpu;
 		}
-		if (sw & 2)
+		if (sw & (1 << __SW_BIT_CPU_UNBOUND))
 			return WORK_CPU_UNBOUND;
+        if (sw & (1 << __SW_BIT_TCM))
+			return WORK_TCM;
 	}
 	return WORK_CPU_NONE;
 }
@@ -286,7 +296,15 @@ static inline int __next_gcwq_cpu(int cpu, const struct cpumask *mask,
 static inline int __next_wq_cpu(int cpu, const struct cpumask *mask,
 				struct workqueue_struct *wq)
 {
-	return __next_gcwq_cpu(cpu, mask, !(wq->flags & WQ_UNBOUND) ? 1 : 2);
+    unsigned int sw;
+    if (wq->flags & WQ_UNBOUND) {
+        sw = (1 << __SW_BIT_CPU_UNBOUND);
+    } else if (wq->flags & WQ_TCM) {
+        sw = (1 << __SW_BIT_TCM);
+    } else {
+        sw = (1 << __SW_BIT_CPU);
+    }
+	return __next_gcwq_cpu(cpu, mask, sw);
 }
 
 /*
@@ -297,10 +315,16 @@ static inline int __next_wq_cpu(int cpu, const struct cpumask *mask,
  * specific CPU.  The following iterators are similar to
  * for_each_*_cpu() iterators but also considers the unbound gcwq.
  *
- * for_each_gcwq_cpu()		: possible CPUs + WORK_CPU_UNBOUND
- * for_each_online_gcwq_cpu()	: online CPUs + WORK_CPU_UNBOUND
+ * for_each_gcwq_cpu()		: possible CPUs + WORK_CPU_UNBOUND + WORK_TCM
+ * for_each_online_gcwq_cpu()	: online CPUs + WORK_CPU_UNBOUND + WORK_TCM
  * for_each_cwq_cpu()		: possible CPUs for bound workqueues,
- *				  WORK_CPU_UNBOUND for unbound workqueues
+ *				  WORK_CPU_UNBOUND for unbound workqueues,
+ *				  WORK_TCM for tcm workqueues
+ */
+
+/* TODO:
+ *__next_gcwq_cpu(-1, cpu_possible_mask, 3) => __next_gcwq_cpu(-1, cpu_possible_mask, 7)
+ * since 7 = 0b111 (so all the sw & blah flag checks are true)
  */
 #define for_each_gcwq_cpu(cpu)						\
 	for ((cpu) = __next_gcwq_cpu(-1, cpu_possible_mask, 3);		\
@@ -454,32 +478,43 @@ static DEFINE_PER_CPU_SHARED_ALIGNED(atomic_t, gcwq_nr_running);
 static struct global_cwq unbound_global_cwq;
 static atomic_t unbound_gcwq_nr_running = ATOMIC_INIT(0);	/* always 0 */
 
+static struct global_cwq tcm_global_cwq;
+static atomic_t tcm_gcwq_nr_running = ATOMIC_INIT(0);	/* always 0 */
+
 static int worker_thread(void *__worker);
 
 static struct global_cwq *get_gcwq(unsigned int cpu)
 {
-	if (cpu != WORK_CPU_UNBOUND)
-		return &per_cpu(global_cwq, cpu);
-	else
+    if (cpu == WORK_CPU_UNBOUND) {
 		return &unbound_global_cwq;
+    } else if (cpu == WORK_TCM) {
+		return &tcm_global_cwq;
+    } else {
+		return &per_cpu(global_cwq, cpu);
+    }
 }
 
 static atomic_t *get_gcwq_nr_running(unsigned int cpu)
 {
-	if (cpu != WORK_CPU_UNBOUND)
-		return &per_cpu(gcwq_nr_running, cpu);
-	else
+    if (cpu == WORK_CPU_UNBOUND) {
 		return &unbound_gcwq_nr_running;
+    } else if (cpu == WORK_TCM) {
+		return &tcm_gcwq_nr_running;
+    } else {
+		return &per_cpu(gcwq_nr_running, cpu);
+    }
 }
 
 static struct cpu_workqueue_struct *get_cwq(unsigned int cpu,
 					    struct workqueue_struct *wq)
 {
-	if (!(wq->flags & WQ_UNBOUND)) {
+    BUG_ON((wq->flags & WQ_UNBOUND) && (wq->flags & WQ_TCM));
+	if (!(wq->flags & WQ_UNBOUND) && !(wq->flags & WQ_TCM)) {
 		if (likely(cpu < nr_cpu_ids))
 			return per_cpu_ptr(wq->cpu_wq.pcpu, cpu);
-	} else if (likely(cpu == WORK_CPU_UNBOUND))
+	} else if (likely(cpu == WORK_CPU_UNBOUND || cpu == WORK_TCM))
 		return wq->cpu_wq.single;
+        // TODO: is this getting called?
 	return NULL;
 }
 
@@ -561,7 +596,7 @@ static struct global_cwq *get_work_gcwq(struct work_struct *work)
 	if (cpu == WORK_CPU_NONE)
 		return NULL;
 
-	BUG_ON(cpu >= nr_cpu_ids && cpu != WORK_CPU_UNBOUND);
+	BUG_ON(cpu >= nr_cpu_ids && cpu != WORK_CPU_UNBOUND && cpu != WORK_TCM);
 	return get_gcwq(cpu);
 }
 
@@ -976,6 +1011,10 @@ static bool is_chained_work(struct workqueue_struct *wq)
 	return false;
 }
 
+#ifndef ARCH_ARM_MSM
+static int in_test_crypto_workqueue = 0;
+EXPORT_SYMBOL(in_test_crypto_workqueue);
+#endif
 static void __queue_work(unsigned int cpu, struct workqueue_struct *wq,
 			 struct work_struct *work)
 {
@@ -985,6 +1024,16 @@ static void __queue_work(unsigned int cpu, struct workqueue_struct *wq,
 	unsigned int work_flags;
 	unsigned long flags;
 
+#ifndef ARCH_ARM_MSM
+    if (in_test_crypto_workqueue) {
+        MY_PRINTK("%s:%i @ %s:\n" 
+               "  DEBUG\n"
+            , __FILE__, __LINE__, __func__
+            );
+        in_test_crypto_workqueue = 0;
+    }
+#endif
+
 	debug_work_activate(work);
 
 	/* if dying, only works from the same workqueue are allowed */
@@ -992,8 +1041,15 @@ static void __queue_work(unsigned int cpu, struct workqueue_struct *wq,
 	    WARN_ON_ONCE(!is_chained_work(wq)))
 		return;
 
+    BUG_ON((wq->flags & WQ_UNBOUND) && (wq->flags & WQ_TCM));
 	/* determine gcwq to use */
-	if (!(wq->flags & WQ_UNBOUND)) {
+	if (wq->flags & WQ_UNBOUND) {
+		gcwq = get_gcwq(WORK_CPU_UNBOUND);
+		spin_lock_irqsave(&gcwq->lock, flags);
+    } else if (wq->flags & WQ_TCM) {
+		gcwq = get_gcwq(WORK_TCM);
+		spin_lock_irqsave(&gcwq->lock, flags);
+    } else {
 		struct global_cwq *last_gcwq;
 
 		if (unlikely(cpu == WORK_CPU_UNBOUND))
@@ -1023,9 +1079,6 @@ static void __queue_work(unsigned int cpu, struct workqueue_struct *wq,
 			}
 		} else
 			spin_lock_irqsave(&gcwq->lock, flags);
-	} else {
-		gcwq = get_gcwq(WORK_CPU_UNBOUND);
-		spin_lock_irqsave(&gcwq->lock, flags);
 	}
 
 	/* gcwq determined, get cwq and queue */
@@ -1033,6 +1086,12 @@ static void __queue_work(unsigned int cpu, struct workqueue_struct *wq,
 	trace_workqueue_queue_work(cpu, cwq, work);
 
 	BUG_ON(!list_empty(&work->entry));
+
+    /* MY_PRINTK("%s:%i @ %s:\n"  */
+    /*        "  cwq = 0x%p\n" */
+    /*     , __FILE__, __LINE__, __func__ */
+    /*     , (void *) cwq */
+    /*     ); */
 
 	cwq->nr_in_flight[cwq->work_color]++;
 	work_flags = work_color_to_flags(cwq->work_color);
@@ -1151,15 +1210,18 @@ int queue_delayed_work_on(int cpu, struct workqueue_struct *wq,
 		 * Note that the work's gcwq is preserved to allow
 		 * reentrance detection for delayed works.
 		 */
-		if (!(wq->flags & WQ_UNBOUND)) {
+		if (wq->flags & WQ_UNBOUND) {
+			lcpu = WORK_CPU_UNBOUND;
+		} else if (wq->flags & WQ_TCM) {
+			lcpu = WORK_TCM;
+        } else {
 			struct global_cwq *gcwq = get_work_gcwq(work);
 
 			if (gcwq && gcwq->cpu != WORK_CPU_UNBOUND)
 				lcpu = gcwq->cpu;
 			else
 				lcpu = raw_smp_processor_id();
-		} else
-			lcpu = WORK_CPU_UNBOUND;
+        }
 
 		set_work_cwq(work, get_cwq(lcpu, wq), 0);
 
@@ -1210,8 +1272,13 @@ static void worker_enter_idle(struct worker *worker)
 	} else
 		wake_up_all(&gcwq->trustee_wait);
 
-	/* sanity check nr_running */
-	WARN_ON_ONCE(gcwq->nr_workers == gcwq->nr_idle &&
+	/*
+	 * Sanity check nr_running.  Because trustee releases gcwq->lock
+	 * between setting %WORKER_ROGUE and zapping nr_running, the
+	 * warning may trigger spuriously.  Check iff trustee is idle.
+	 */
+	WARN_ON_ONCE(gcwq->trustee_state == TRUSTEE_DONE &&
+		     gcwq->nr_workers == gcwq->nr_idle &&
 		     atomic_read(get_gcwq_nr_running(gcwq->cpu)));
 }
 
@@ -1349,9 +1416,12 @@ static struct worker *alloc_worker(void)
  */
 static struct worker *create_worker(struct global_cwq *gcwq, bool bind)
 {
-	bool on_unbound_cpu = gcwq->cpu == WORK_CPU_UNBOUND;
+	bool on_unbound_cpu = (gcwq->cpu == WORK_CPU_UNBOUND || gcwq->cpu == WORK_TCM);
 	struct worker *worker = NULL;
 	int id = -1;
+#ifdef CONFIG_TCM_WORKQUEUE
+    int old_tcm_resident;
+#endif
 
 	spin_lock_irq(&gcwq->lock);
 	while (ida_get_new(&gcwq->worker_ida, &id)) {
@@ -1369,6 +1439,13 @@ static struct worker *create_worker(struct global_cwq *gcwq, bool bind)
 	worker->gcwq = gcwq;
 	worker->id = id;
 
+#ifdef CONFIG_TCM_WORKQUEUE
+    old_tcm_resident = current->tcm_resident;
+    if (gcwq->cpu == WORK_TCM) {
+        current->tcm_resident = 1;
+    }
+#endif
+
 	if (!on_unbound_cpu)
 		worker->task = kthread_create_on_node(worker_thread,
 						      worker,
@@ -1377,6 +1454,11 @@ static struct worker *create_worker(struct global_cwq *gcwq, bool bind)
 	else
 		worker->task = kthread_create(worker_thread, worker,
 					      "kworker/u:%d", id);
+
+#ifdef CONFIG_TCM_WORKQUEUE
+    current->tcm_resident = old_tcm_resident;
+#endif
+
 	if (IS_ERR(worker->task))
 		goto fail;
 
@@ -1494,7 +1576,7 @@ static bool send_mayday(struct work_struct *work)
 	/* mayday mayday mayday */
 	cpu = cwq->gcwq->cpu;
 	/* WORK_CPU_UNBOUND can't be set in cpumask, use cpu 0 instead */
-	if (cpu == WORK_CPU_UNBOUND)
+	if (cpu == WORK_CPU_UNBOUND || cpu == WORK_TCM)
 		cpu = 0;
 	if (!mayday_test_and_set_cpu(cpu, wq->mayday_mask))
 		wake_up_process(wq->rescuer->task);
@@ -2026,8 +2108,14 @@ static int rescuer_thread(void *__wq)
 	struct workqueue_struct *wq = __wq;
 	struct worker *rescuer = wq->rescuer;
 	struct list_head *scheduled = &rescuer->scheduled;
-	bool is_unbound = wq->flags & WQ_UNBOUND;
 	unsigned int cpu;
+
+	bool is_unbound = (wq->flags & WQ_UNBOUND) || (wq->flags & WQ_TCM);
+    int default_unbound_cpu = WORK_CPU_UNBOUND;
+    BUG_ON((wq->flags & WQ_UNBOUND) && (wq->flags & WQ_TCM));
+    if (wq->flags & WQ_TCM) {
+        default_unbound_cpu = WORK_TCM;
+    }
 
 	set_user_nice(current, RESCUER_NICE_LEVEL);
 repeat:
@@ -2041,7 +2129,7 @@ repeat:
 	 * workqueues use cpu 0 in mayday_mask for CPU_UNBOUND.
 	 */
 	for_each_mayday_cpu(cpu, wq->mayday_mask) {
-		unsigned int tcpu = is_unbound ? WORK_CPU_UNBOUND : cpu;
+		unsigned int tcpu = is_unbound ? default_unbound_cpu : cpu;
 		struct cpu_workqueue_struct *cwq = get_cwq(tcpu, wq);
 		struct global_cwq *gcwq = cwq->gcwq;
 		struct work_struct *work, *n;
@@ -2895,9 +2983,7 @@ static int alloc_cwqs(struct workqueue_struct *wq)
 	const size_t align = max_t(size_t, 1 << WORK_STRUCT_FLAG_BITS,
 				   __alignof__(unsigned long long));
 
-	if (!(wq->flags & WQ_UNBOUND))
-		wq->cpu_wq.pcpu = __alloc_percpu(size, align);
-	else {
+	if ((wq->flags & WQ_UNBOUND) || (wq->flags & WQ_TCM)) {
 		void *ptr;
 
 		/*
@@ -2906,10 +2992,14 @@ static int alloc_cwqs(struct workqueue_struct *wq)
 		 * allocated pointer which will be used for free.
 		 */
 		ptr = kzalloc(size + align + sizeof(void *), GFP_KERNEL);
+        // TODO: is ptr NULL?
 		if (ptr) {
+            // TODO: is this getting called.
 			wq->cpu_wq.single = PTR_ALIGN(ptr, align);
 			*(void **)(wq->cpu_wq.single + 1) = ptr;
 		}
+	} else {
+		wq->cpu_wq.pcpu = __alloc_percpu(size, align);
 	}
 
 	/* just in case, make sure it's actually aligned */
@@ -2919,7 +3009,7 @@ static int alloc_cwqs(struct workqueue_struct *wq)
 
 static void free_cwqs(struct workqueue_struct *wq)
 {
-	if (!(wq->flags & WQ_UNBOUND))
+	if (!(wq->flags & WQ_UNBOUND) && !(wq->flags & WQ_TCM))
 		free_percpu(wq->cpu_wq.pcpu);
 	else if (wq->cpu_wq.single) {
 		/* the pointer to free is stored right after the cwq */
@@ -2930,7 +3020,7 @@ static void free_cwqs(struct workqueue_struct *wq)
 static int wq_clamp_max_active(int max_active, unsigned int flags,
 			       const char *name)
 {
-	int lim = flags & WQ_UNBOUND ? WQ_UNBOUND_MAX_ACTIVE : WQ_MAX_ACTIVE;
+	int lim = ((flags & WQ_UNBOUND) || (flags & WQ_TCM)) ? WQ_UNBOUND_MAX_ACTIVE : WQ_MAX_ACTIVE;
 
 	if (max_active < 1 || max_active > lim)
 		printk(KERN_WARNING "workqueue: max_active %d requested for %s "
@@ -2975,7 +3065,7 @@ struct workqueue_struct *__alloc_workqueue_key(const char *fmt,
 	 * Unbound workqueues aren't concurrency managed and should be
 	 * dispatched to workers immediately.
 	 */
-	if (flags & WQ_UNBOUND)
+	if ((flags & WQ_UNBOUND) || (flags & WQ_TCM))
 		flags |= WQ_HIGHPRI;
 
 	max_active = max_active ?: WQ_DFL_ACTIVE;
@@ -3803,7 +3893,7 @@ static int __init init_workqueues(void)
 		struct global_cwq *gcwq = get_gcwq(cpu);
 		struct worker *worker;
 
-		if (cpu != WORK_CPU_UNBOUND)
+		if (cpu != WORK_CPU_UNBOUND || cpu != WORK_TCM)
 			gcwq->flags &= ~GCWQ_DISASSOCIATED;
 		worker = create_worker(gcwq, true);
 		BUG_ON(!worker);
@@ -3815,6 +3905,10 @@ static int __init init_workqueues(void)
 	system_wq = alloc_workqueue("events", 0, 0);
 	system_long_wq = alloc_workqueue("events_long", 0, 0);
 	system_nrt_wq = alloc_workqueue("events_nrt", WQ_NON_REENTRANT, 0);
+#ifdef CONFIG_TCM_WORKQUEUE
+	system_tcm_wq = alloc_workqueue("events_tcm", WQ_TCM,
+					    WQ_UNBOUND_MAX_ACTIVE);
+#endif
 	system_unbound_wq = alloc_workqueue("events_unbound", WQ_UNBOUND,
 					    WQ_UNBOUND_MAX_ACTIVE);
 	system_freezable_wq = alloc_workqueue("events_freezable",
@@ -3823,6 +3917,9 @@ static int __init init_workqueues(void)
 			WQ_NON_REENTRANT | WQ_FREEZABLE, 0);
 	BUG_ON(!system_wq || !system_long_wq || !system_nrt_wq ||
 	       !system_unbound_wq || !system_freezable_wq ||
+#ifdef CONFIG_TCM_WORKQUEUE
+           !system_tcm_wq ||
+#endif
 		!system_nrt_freezable_wq);
 	return 0;
 }

@@ -48,7 +48,7 @@ static void zlib_comp_exit(struct zlib_ctx *ctx)
 
 	if (stream->workspace) {
 		zlib_deflateEnd(stream);
-		vfree(stream->workspace);
+		crypto_vfree(stream->workspace);
 		stream->workspace = NULL;
 	}
 }
@@ -59,7 +59,7 @@ static void zlib_decomp_exit(struct zlib_ctx *ctx)
 
 	if (stream->workspace) {
 		zlib_inflateEnd(stream);
-		vfree(stream->workspace);
+		crypto_vfree(stream->workspace);
 		stream->workspace = NULL;
 	}
 }
@@ -102,7 +102,7 @@ static int zlib_compress_setup(struct crypto_pcomp *tfm, void *params,
 					: DEF_MEM_LEVEL;
 
 	workspacesize = zlib_deflate_workspacesize(window_bits, mem_level);
-	stream->workspace = vzalloc(workspacesize);
+	stream->workspace = crypto_vzalloc(workspacesize);
 	if (!stream->workspace)
 		return -ENOMEM;
 
@@ -119,7 +119,7 @@ static int zlib_compress_setup(struct crypto_pcomp *tfm, void *params,
 					? nla_get_u32(tb[ZLIB_COMP_STRATEGY])
 					: Z_DEFAULT_STRATEGY);
 	if (ret != Z_OK) {
-		vfree(stream->workspace);
+		crypto_vfree(stream->workspace);
 		stream->workspace = NULL;
 		return -EINVAL;
 	}
@@ -227,13 +227,13 @@ static int zlib_decompress_setup(struct crypto_pcomp *tfm, void *params,
 				 ? nla_get_u32(tb[ZLIB_DECOMP_WINDOWBITS])
 				 : DEF_WBITS;
 
-	stream->workspace = vzalloc(zlib_inflate_workspacesize());
+	stream->workspace = crypto_vzalloc(zlib_inflate_workspacesize());
 	if (!stream->workspace)
 		return -ENOMEM;
 
 	ret = zlib_inflateInit2(stream, ctx->decomp_windowBits);
 	if (ret != Z_OK) {
-		vfree(stream->workspace);
+		crypto_vfree(stream->workspace);
 		stream->workspace = NULL;
 		return -EINVAL;
 	}

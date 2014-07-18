@@ -11,9 +11,11 @@
  * published by the Free Software Foundation.
  */
 
+#include <linux/module.h>
 #include <linux/types.h>
 #include <linux/gfp.h>
 #include <linux/slab.h>
+#include <linux/vmalloc.h>
 
 #ifdef CONFIG_CRYPTO_SECURE_ALLOC
 
@@ -24,17 +26,7 @@
 
 static inline void * __tcm_alloc(size_t size, gfp_t gfp_mask)
 {
-    MY_PRINTK("%s:%i @ %s:\n" 
-           "  size = %zd\n"
-        , __FILE__, __LINE__, __func__
-        , size
-        );
     void * ptr = tcm_code_alloc(size);
-    MY_PRINTK("%s:%i @ %s:\n" 
-           "  ptr = 0x%p\n"
-        , __FILE__, __LINE__, __func__
-        , ptr 
-        );
 	if (ptr != NULL && (gfp_mask & __GFP_ZERO)) {
         memset(ptr, 0, size);
     }
@@ -61,8 +53,6 @@ inline unsigned long crypto_alloc_page(gfp_t gfp_mask)
 #define crypto_per_cpu_ptr per_cpu_ptr
 #define crypto_this_cpu_ptr this_cpu_ptr
 #define crypto_free_percpu free_percpu
-#define crypto_vmalloc vmalloc
-#define crypto_vzalloc vzalloc
 
 static int is_tcm_code_addr(void * addr) 
 {
@@ -81,6 +71,16 @@ void *crypto_kmalloc(size_t size, gfp_t flags)
 
     /* return kmalloc(size, flags); */
 }
+
+void *crypto__get_free_page(gfp_t flags)
+{
+    if (tcm_code_initialized()) {
+        return __tcm_alloc(PAGE_SIZE, flags);
+    } else {
+        return kmalloc(PAGE_SIZE, flags);
+    }
+}
+EXPORT_SYMBOL(crypto__get_free_page);
 
 inline void *crypto_kzalloc(size_t size, gfp_t flags)
 {
@@ -108,9 +108,47 @@ void crypto_kfree(void * ptr)
     } else {
         kfree(ptr);
     }
-
-    /* kfree(ptr); */
 }
+
+void crypto_kzfree(void *ptr)
+{
+    if (tcm_code_initialized() && is_tcm_code_addr(ptr)) {
+        tcm_code_kzfree(ptr);
+    } else {
+        kzfree(ptr);
+    }
+}
+EXPORT_SYMBOL(crypto_kzfree);
+
+void * crypto_vmalloc(unsigned long size)
+{
+    if (tcm_code_initialized()) {
+        return __tcm_alloc(size, 0);
+    } else {
+        return vmalloc(size);
+    }
+}
+EXPORT_SYMBOL(crypto_vmalloc);
+
+void *crypto_vzalloc(unsigned long size)
+{
+    if (tcm_code_initialized()) {
+        return __tcm_alloc(size, __GFP_ZERO);
+    } else {
+        return vzalloc(size);
+    }
+}
+EXPORT_SYMBOL(crypto_vzalloc);
+
+void crypto_vfree(void * ptr)
+{
+    if (tcm_code_initialized() && is_tcm_code_addr(ptr)) {
+        tcm_code_free(ptr);
+    } else {
+        vfree(ptr);
+    }
+}
+EXPORT_SYMBOL(crypto_vfree);
 
 // TODO: define remaining free functions, replace kzalloc and try just kmalloc
 

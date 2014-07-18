@@ -25,6 +25,8 @@
 #include <linux/string.h>
 #include <linux/uaccess.h>
 
+#include <crypto/secure_alloc.h>
+
 /*
  * Algorithm masks and types.
  */
@@ -705,7 +707,7 @@ static inline struct ablkcipher_request *ablkcipher_request_alloc(
 
 static inline void ablkcipher_request_free(struct ablkcipher_request *req)
 {
-	kzfree(req);
+	crypto_kzfree(req);
 }
 
 static inline void ablkcipher_request_set_callback(
@@ -836,7 +838,7 @@ static inline struct aead_request *aead_request_alloc(struct crypto_aead *tfm,
 
 static inline void aead_request_free(struct aead_request *req)
 {
-	kzfree(req);
+	crypto_kzfree(req);
 }
 
 static inline void aead_request_set_callback(struct aead_request *req,

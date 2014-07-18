@@ -56,7 +56,8 @@ enum {
 
 	/* special cpu IDs */
 	WORK_CPU_UNBOUND	= NR_CPUS,
-	WORK_CPU_NONE		= NR_CPUS + 1,
+	WORK_TCM			= NR_CPUS + 1,
+	WORK_CPU_NONE		= NR_CPUS + 2,
 	WORK_CPU_LAST		= WORK_CPU_NONE,
 
 	/*
@@ -254,6 +255,7 @@ enum {
 	WQ_MEM_RECLAIM		= 1 << 3, /* may be used for memory reclaim */
 	WQ_HIGHPRI		= 1 << 4, /* high priority */
 	WQ_CPU_INTENSIVE	= 1 << 5, /* cpu instensive workqueue */
+	WQ_TCM		= 1 << 8, /* tcm resident workers */
 
 	WQ_DRAINING		= 1 << 6, /* internal: workqueue is draining */
 	WQ_RESCUER		= 1 << 7, /* internal: workqueue has rescuer */
@@ -292,6 +294,7 @@ enum {
  *
  * system_nrt_freezable_wq is equivalent to system_nrt_wq except that
  * it's freezable.
+ *
  */
 extern struct workqueue_struct *system_wq;
 extern struct workqueue_struct *system_long_wq;
@@ -299,6 +302,14 @@ extern struct workqueue_struct *system_nrt_wq;
 extern struct workqueue_struct *system_unbound_wq;
 extern struct workqueue_struct *system_freezable_wq;
 extern struct workqueue_struct *system_nrt_freezable_wq;
+
+#ifdef CONFIG_TCM_WORKQUEUE
+/* system_tcm_wq is equivalent to system_unbound_wq (we don't benefit 
+ * from binding ourselves to a CPU since TCM accesses don't go through 
+ * the cache hierarchy).
+ */
+extern struct workqueue_struct *system_tcm_wq;
+#endif
 
 extern struct workqueue_struct *
 __alloc_workqueue_key(const char *fmt, unsigned int flags, int max_active,

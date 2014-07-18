@@ -198,6 +198,7 @@ CONFIG_DEBUG_INFO=y
 
 CONFIG_TCM_HEAP=y
 CONFIG_DEBUG_TCM_HEAP=y
+CONFIG_TCM_WORKQUEUE=y
 
 # setting it here doesn't work but do it through menuconfig works...?
 # CONFIG_MODULES=y

@@ -162,7 +162,7 @@ static int ahash_setkey_unaligned(struct crypto_ahash *tfm, const u8 *key,
 	alignbuffer = (u8 *)ALIGN((unsigned long)buffer, alignmask + 1);
 	memcpy(alignbuffer, key, keylen);
 	ret = tfm->setkey(tfm, alignbuffer, keylen);
-	kzfree(buffer);
+	crypto_kzfree(buffer);
 	return ret;
 }
 
@@ -201,7 +201,7 @@ static void ahash_op_unaligned_finish(struct ahash_request *req, int err)
 		memcpy(priv->result, req->result,
 		       crypto_ahash_digestsize(crypto_ahash_reqtfm(req)));
 
-	kzfree(priv);
+	crypto_kzfree(priv);
 }
 
 static void ahash_op_unaligned_done(struct crypto_async_request *req, int err)
@@ -287,7 +287,7 @@ static void ahash_def_finup_finish2(struct ahash_request *req, int err)
 		memcpy(priv->result, req->result,
 		       crypto_ahash_digestsize(crypto_ahash_reqtfm(req)));
 
-	kzfree(priv);
+	crypto_kzfree(priv);
 }
 
 static void ahash_def_finup_done2(struct crypto_async_request *req, int err)

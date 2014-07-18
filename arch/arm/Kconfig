@@ -263,6 +263,12 @@ config DEBUG_TCM_HEAP
     help
       Allocate TCM heap using __get_free_pages instead of ioremap'ed physical region of TCM.
 
+config TCM_WORKQUEUE
+	bool "TCM workqueue"
+	select TCM_HEAP
+    help
+      Create a workqueue of threads allocated inside the TCM.
+
 config MMU
 	bool "MMU-based Paged Memory Management Support"
 	default y

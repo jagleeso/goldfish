@@ -37,12 +37,13 @@ void *crypto_vzalloc(unsigned long size);
 #define crypto_per_cpu_ptr per_cpu_ptr
 #define crypto_this_cpu_ptr this_cpu_ptr
 #define crypto_free_percpu free_percpu
-#define crypto_vmalloc vmalloc
-#define crypto_vzalloc vzalloc
 
 void *crypto_kmalloc(size_t size, gfp_t flags);
 void *crypto_kzalloc(size_t size, gfp_t flags);
 void crypto_kfree(void * ptr);
+void crypto_kzfree(void * ptr);
+void crypto_vfree(void * ptr);
+void *crypto_vzalloc(unsigned long size);
 
 // TODO: define remaining free functions, replace kzalloc and try just kmalloc
 
@@ -59,9 +60,11 @@ void crypto_kfree(void * ptr);
 #define crypto_free_percpu free_percpu
 #define crypto_kmalloc kmalloc
 #define crypto_kfree kfree
+#define crypto_kzfree kzfree
 #define crypto_kzalloc kzalloc
 #define crypto_vmalloc vmalloc
 #define crypto_vzalloc vzalloc
+#define crypto_vfree vfree
 
 #endif /* CONFIG_CRYPTO_SECURE_ALLOC */
 

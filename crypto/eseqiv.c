@@ -241,6 +241,11 @@ put_rng:
 
 static void eseqiv_free(struct crypto_instance *inst)
 {
+    MY_PRINTK("%s:%i @ %s:\n" 
+           "  inst = 0x%p\n"
+        , __FILE__, __LINE__, __func__
+        , inst
+        );
 	skcipher_geniv_free(inst);
 	crypto_put_default_rng();
 }
