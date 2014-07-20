@@ -4,6 +4,7 @@
 #include <linux/ioport.h>
 #include <linux/slab.h>
 #include <linux/delay.h>
+#include <linux/workqueue.h>
 #include <asm/mach/map.h>
 
 #include <crypto/aes.h>
@@ -131,11 +132,13 @@ fail_alloc_sizes:
 
 static int init_tcm_tboxes(void);
 static void disable_dsps(void);
+static int init_tcm_global_cwq(void);
 
 /* During boot, we setup the gen_pool struct, but we can't use it yet since DSPS 
  * hasn't been disabled. So, more intialization will happen on module load (when we 
  * can disable DSPS).
  */
+/* #define NO_TCM */
 int late_tcm_code_setup(void)
 {
     int ret = 0;
@@ -149,18 +152,45 @@ int late_tcm_code_setup(void)
          */
         ret = init_tcm_tboxes();
         if (ret) {
-            goto done;
+            goto fail_init_tcm_tboxes;
         }
+
+#ifndef NO_TCM
+        ret = init_tcm_global_cwq();
+        if (ret) {
+            goto fail_init_tcm_global_cwq;
+        }
+#endif
+
         initialized = 1;
     }
 
-done:
+fail_init_tcm_global_cwq:
+    /* TODO: revert tboxes to static ones */
+fail_init_tcm_tboxes:
 	spin_unlock_irqrestore(&tcm_init_lock, flags);
 
     return ret;
 
 }
 EXPORT_SYMBOL(late_tcm_code_setup);
+
+static int init_tcm_global_cwq(void)
+{
+    int ret = 0;
+    ret = init_gcwq(WORK_TCM);
+    if (!ret)
+        return ret;
+    ret = init_initial_worker(WORK_TCM);
+    if (!ret)
+        return ret;
+
+	system_tcm_wq = alloc_workqueue("events_tcm", WQ_TCM,
+					    WQ_UNBOUND_MAX_ACTIVE);
+    BUG_ON(!system_tcm_wq);
+
+    return ret;
+}
 
 /* We can start allocating from the TCM once DSPS is disabled.
      */

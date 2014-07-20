@@ -44,6 +44,8 @@
 
 #include "workqueue_sched.h"
 
+/* #define NO_TCM */
+
 enum {
 	/* global_cwq flags */
 	GCWQ_MANAGE_WORKERS	= 1 << 0,	/* need to manage workers */
@@ -281,15 +283,18 @@ static inline int __next_gcwq_cpu(int cpu, const struct cpumask *mask,
 {
 	if (cpu < nr_cpu_ids) {
 		if (sw & (1 << __SW_BIT_CPU)) {
-			cpu = cpumask_next(cpu, mask);
-			if (cpu < nr_cpu_ids)
-				return cpu;
+            int next_cpu = cpumask_next(cpu, mask);
+			if (next_cpu < nr_cpu_ids) {
+				return next_cpu;
+            }
 		}
-		if (sw & (1 << __SW_BIT_CPU_UNBOUND))
-			return WORK_CPU_UNBOUND;
-        if (sw & (1 << __SW_BIT_TCM))
-			return WORK_TCM;
 	}
+    if (sw & (1 << __SW_BIT_CPU_UNBOUND) && cpu < WORK_CPU_UNBOUND) {
+        return WORK_CPU_UNBOUND;
+    }
+    if (sw & (1 << __SW_BIT_TCM) && cpu < WORK_TCM) {
+        return WORK_TCM;
+    }
 	return WORK_CPU_NONE;
 }
 
@@ -327,14 +332,14 @@ static inline int __next_wq_cpu(int cpu, const struct cpumask *mask,
  * since 7 = 0b111 (so all the sw & blah flag checks are true)
  */
 #define for_each_gcwq_cpu(cpu)						\
-	for ((cpu) = __next_gcwq_cpu(-1, cpu_possible_mask, 3);		\
+	for ((cpu) = __next_gcwq_cpu(-1, cpu_possible_mask, 7);		\
 	     (cpu) < WORK_CPU_NONE;					\
-	     (cpu) = __next_gcwq_cpu((cpu), cpu_possible_mask, 3))
+	     (cpu) = __next_gcwq_cpu((cpu), cpu_possible_mask, 7))
 
 #define for_each_online_gcwq_cpu(cpu)					\
-	for ((cpu) = __next_gcwq_cpu(-1, cpu_online_mask, 3);		\
+	for ((cpu) = __next_gcwq_cpu(-1, cpu_online_mask, 7);		\
 	     (cpu) < WORK_CPU_NONE;					\
-	     (cpu) = __next_gcwq_cpu((cpu), cpu_online_mask, 3))
+	     (cpu) = __next_gcwq_cpu((cpu), cpu_online_mask, 7))
 
 #define for_each_cwq_cpu(cpu, wq)					\
 	for ((cpu) = __next_wq_cpu(-1, cpu_possible_mask, (wq));	\
@@ -1024,16 +1029,6 @@ static void __queue_work(unsigned int cpu, struct workqueue_struct *wq,
 	unsigned int work_flags;
 	unsigned long flags;
 
-#ifndef ARCH_ARM_MSM
-    if (in_test_crypto_workqueue) {
-        MY_PRINTK("%s:%i @ %s:\n" 
-               "  DEBUG\n"
-            , __FILE__, __LINE__, __func__
-            );
-        in_test_crypto_workqueue = 0;
-    }
-#endif
-
 	debug_work_activate(work);
 
 	/* if dying, only works from the same workqueue are allowed */
@@ -1092,6 +1087,33 @@ static void __queue_work(unsigned int cpu, struct workqueue_struct *wq,
     /*     , __FILE__, __LINE__, __func__ */
     /*     , (void *) cwq */
     /*     ); */
+
+#ifndef ARCH_ARM_MSM
+    if (in_test_crypto_workqueue) {
+        MY_PRINTK("%s:%i @ %s:\n" 
+               "  DEBUG\n"
+            , __FILE__, __LINE__, __func__
+            );
+
+        for_each_gcwq_cpu(cpu) {
+            struct global_cwq *gcwq = get_gcwq(cpu);
+
+            MY_PRINTK("%s:%i @ %s:\n" 
+                    "  gcwq = 0x%p\n"
+                    "  gcwq == tcm_global_cwq = %i\n"
+                    "  cpu = %i\n"
+                    , __FILE__, __LINE__, __func__
+                    , (void *) gcwq
+                    , gcwq == &tcm_global_cwq
+                    , cpu
+                    );
+
+        }
+
+        in_test_crypto_workqueue = 0;
+
+    }
+#endif
 
 	cwq->nr_in_flight[cwq->work_color]++;
 	work_flags = work_color_to_flags(cwq->work_color);
@@ -1442,7 +1464,9 @@ static struct worker *create_worker(struct global_cwq *gcwq, bool bind)
 #ifdef CONFIG_TCM_WORKQUEUE
     old_tcm_resident = current->tcm_resident;
     if (gcwq->cpu == WORK_TCM) {
+#ifndef NO_TCM
         current->tcm_resident = 1;
+#endif
     }
 #endif
 
@@ -3855,59 +3879,107 @@ out_unlock:
 }
 #endif /* CONFIG_FREEZER */
 
+/* Allow late intialization of a gcwq (needed for tcm_global_cwq since TCM is 
+ * available at boot).
+ */
+int init_gcwq(unsigned int cpu)
+{
+	int i;
+
+	/* initialize gcwq */
+
+    struct global_cwq *gcwq = get_gcwq(cpu);
+
+    MY_PRINTK("%s:%i @ %s:\n" 
+           "  gcwq = 0x%p\n"
+           "  gcwq == tcm_global_cwq = %i\n"
+           "  cpu = %i\n"
+        , __FILE__, __LINE__, __func__
+        , (void *) gcwq
+        , gcwq == &tcm_global_cwq
+        , cpu
+        );
+
+    spin_lock_init(&gcwq->lock);
+    INIT_LIST_HEAD(&gcwq->worklist);
+    gcwq->cpu = cpu;
+    gcwq->flags |= GCWQ_DISASSOCIATED;
+
+    INIT_LIST_HEAD(&gcwq->idle_list);
+    for (i = 0; i < BUSY_WORKER_HASH_SIZE; i++)
+        INIT_HLIST_HEAD(&gcwq->busy_hash[i]);
+
+    init_timer_deferrable(&gcwq->idle_timer);
+    gcwq->idle_timer.function = idle_worker_timeout;
+    gcwq->idle_timer.data = (unsigned long)gcwq;
+
+    setup_timer(&gcwq->mayday_timer, gcwq_mayday_timeout,
+            (unsigned long)gcwq);
+
+    ida_init(&gcwq->worker_ida);
+
+    gcwq->trustee_state = TRUSTEE_DONE;
+    init_waitqueue_head(&gcwq->trustee_wait);
+    return 0;
+}
+EXPORT_SYMBOL(init_gcwq);
+
+int init_initial_worker(unsigned long int cpu)
+{
+	/* create the initial worker */
+    struct global_cwq *gcwq = get_gcwq(cpu);
+    struct worker *worker;
+
+    if (cpu != WORK_CPU_UNBOUND || cpu != WORK_TCM)
+        gcwq->flags &= ~GCWQ_DISASSOCIATED;
+    worker = create_worker(gcwq, true);
+    if (!worker)
+        return -ENOMEM;
+    spin_lock_irq(&gcwq->lock);
+    start_worker(worker);
+    spin_unlock_irq(&gcwq->lock);
+    return 0;
+}
+EXPORT_SYMBOL(init_initial_worker);
+
 static int __init init_workqueues(void)
 {
 	unsigned int cpu;
-	int i;
 
 	cpu_notifier(workqueue_cpu_callback, CPU_PRI_WORKQUEUE);
 
+    MY_PRINTK("%s:%i @ %s:\n" 
+        , __FILE__, __LINE__, __func__
+        );
+
 	/* initialize gcwqs */
 	for_each_gcwq_cpu(cpu) {
-		struct global_cwq *gcwq = get_gcwq(cpu);
-
-		spin_lock_init(&gcwq->lock);
-		INIT_LIST_HEAD(&gcwq->worklist);
-		gcwq->cpu = cpu;
-		gcwq->flags |= GCWQ_DISASSOCIATED;
-
-		INIT_LIST_HEAD(&gcwq->idle_list);
-		for (i = 0; i < BUSY_WORKER_HASH_SIZE; i++)
-			INIT_HLIST_HEAD(&gcwq->busy_hash[i]);
-
-		init_timer_deferrable(&gcwq->idle_timer);
-		gcwq->idle_timer.function = idle_worker_timeout;
-		gcwq->idle_timer.data = (unsigned long)gcwq;
-
-		setup_timer(&gcwq->mayday_timer, gcwq_mayday_timeout,
-			    (unsigned long)gcwq);
-
-		ida_init(&gcwq->worker_ida);
-
-		gcwq->trustee_state = TRUSTEE_DONE;
-		init_waitqueue_head(&gcwq->trustee_wait);
+#ifndef NO_TCM
+        if (cpu == WORK_TCM) {
+            continue;
+        }
+#endif
+        init_gcwq(cpu);
 	}
 
 	/* create the initial worker */
 	for_each_online_gcwq_cpu(cpu) {
-		struct global_cwq *gcwq = get_gcwq(cpu);
-		struct worker *worker;
-
-		if (cpu != WORK_CPU_UNBOUND || cpu != WORK_TCM)
-			gcwq->flags &= ~GCWQ_DISASSOCIATED;
-		worker = create_worker(gcwq, true);
-		BUG_ON(!worker);
-		spin_lock_irq(&gcwq->lock);
-		start_worker(worker);
-		spin_unlock_irq(&gcwq->lock);
+        int ret = 0;
+#ifndef NO_TCM
+        if (cpu == WORK_TCM) {
+            continue;
+        }
+#endif
+        ret = init_initial_worker(cpu);
+        BUG_ON(ret != 0);
 	}
 
 	system_wq = alloc_workqueue("events", 0, 0);
 	system_long_wq = alloc_workqueue("events_long", 0, 0);
 	system_nrt_wq = alloc_workqueue("events_nrt", WQ_NON_REENTRANT, 0);
 #ifdef CONFIG_TCM_WORKQUEUE
-	system_tcm_wq = alloc_workqueue("events_tcm", WQ_TCM,
-					    WQ_UNBOUND_MAX_ACTIVE);
+	/* system_tcm_wq = alloc_workqueue("events_tcm", WQ_TCM, */
+	/* 				    WQ_UNBOUND_MAX_ACTIVE); */
 #endif
 	system_unbound_wq = alloc_workqueue("events_unbound", WQ_UNBOUND,
 					    WQ_UNBOUND_MAX_ACTIVE);
@@ -3918,7 +3990,7 @@ static int __init init_workqueues(void)
 	BUG_ON(!system_wq || !system_long_wq || !system_nrt_wq ||
 	       !system_unbound_wq || !system_freezable_wq ||
 #ifdef CONFIG_TCM_WORKQUEUE
-           !system_tcm_wq ||
+           /* !system_tcm_wq || */
 #endif
 		!system_nrt_freezable_wq);
 	return 0;

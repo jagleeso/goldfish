@@ -458,4 +458,7 @@ extern bool freeze_workqueues_busy(void);
 extern void thaw_workqueues(void);
 #endif /* CONFIG_FREEZER */
 
+int init_gcwq(unsigned int cpu);
+int init_initial_worker(unsigned long int cpu);
+
 #endif

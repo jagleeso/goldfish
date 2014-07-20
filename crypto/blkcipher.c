@@ -412,11 +412,11 @@ static int async_encrypt(struct ablkcipher_request *req)
 		.flags = req->base.flags,
 	};
 
-    MY_PRINTK("%s:%i @ %s:\n" 
-           "  I got called\n"
-        , __FILE__, __LINE__, __func__
-        );
-    dump_stack();
+    /* MY_PRINTK("%s:%i @ %s:\n"  */
+    /*        "  I got called\n" */
+    /*     , __FILE__, __LINE__, __func__ */
+    /*     ); */
+    /* dump_stack(); */
 
 	return alg->encrypt(&desc, req->dst, req->src, req->nbytes);
 }
