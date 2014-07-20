@@ -690,8 +690,21 @@ static void wake_up_worker(struct global_cwq *gcwq)
 {
 	struct worker *worker = first_worker(gcwq);
 
-	if (likely(worker))
+    if (gcwq == &tcm_global_cwq) {
+        MY_PRINTK("%s:%i @ %s:\n" 
+               "  worker = 0x%p\n"
+            , __FILE__, __LINE__, __func__
+            , (void *) worker
+            );
+        dump_stack();
+    }
+
+	if (likely(worker)) {
+        if (gcwq == &tcm_global_cwq) MY_PRINTK("  wake_up_process\n");
 		wake_up_process(worker->task);
+    } else {
+        if (gcwq == &tcm_global_cwq) MY_PRINTK("  DON'T wake_up_process\n");
+    }
 }
 
 /**
@@ -980,8 +993,32 @@ static void insert_work(struct cpu_workqueue_struct *cwq,
 	 */
 	smp_mb();
 
-	if (__need_more_worker(gcwq))
+	if (__need_more_worker(gcwq)) {
+
+        if (gcwq == &tcm_global_cwq) {
+            MY_PRINTK("%s:%i @ %s: __need_more_worker, wake_up_worker(gcwq)\n" 
+                   "  atomic_read(get_gcwq_nr_running(gcwq->cpu)) = %i\n"
+                   "  gcwq = 0x%p\n"
+                , __FILE__, __LINE__, __func__
+                , atomic_read(get_gcwq_nr_running(gcwq->cpu))
+                , gcwq
+                );
+        }
+
 		wake_up_worker(gcwq);
+    } else {
+
+        if (gcwq == &tcm_global_cwq) {
+            MY_PRINTK("%s:%i @ %s: DON'T __need_more_worker, DON'T wake_up_worker(gcwq)\n" 
+                   "  atomic_read(get_gcwq_nr_running(gcwq->cpu)) = %i\n"
+                   "  gcwq = 0x%p\n"
+                , __FILE__, __LINE__, __func__
+                , atomic_read(get_gcwq_nr_running(gcwq->cpu))
+                , gcwq
+                );
+        }
+
+    }
 }
 
 /*
@@ -1279,6 +1316,13 @@ static void worker_enter_idle(struct worker *worker)
 	BUG_ON(!list_empty(&worker->entry) &&
 	       (worker->hentry.next || worker->hentry.pprev));
 
+    if (gcwq == &tcm_global_cwq) {
+        MY_PRINTK("%s:%i @ %s: adding worker to the gcwq->idle_list\n" 
+            , __FILE__, __LINE__, __func__
+            );
+        dump_stack();
+    }
+
 	/* can't use worker_set_flags(), also called from start_worker() */
 	worker->flags |= WORKER_IDLE;
 	gcwq->nr_idle++;
@@ -1521,6 +1565,14 @@ fail:
  */
 static void start_worker(struct worker *worker)
 {
+
+    if (worker->gcwq == &tcm_global_cwq) {
+        MY_PRINTK("%s:%i @ %s:\n" 
+                , __FILE__, __LINE__, __func__
+                );
+        dump_stack();
+    }
+
 	worker->flags |= WORKER_STARTED;
 	worker->gcwq->nr_workers++;
 	worker_enter_idle(worker);
@@ -3608,12 +3660,25 @@ static int __devinit workqueue_cpu_callback(struct notifier_block *nfb,
 	struct worker *uninitialized_var(new_worker);
 	unsigned long flags;
 
+    MY_PRINTK("%s:%i @ %s:\n" 
+           "  cpu = %u\n"
+        , __FILE__, __LINE__, __func__
+        , cpu
+        );
+
 	action &= ~CPU_TASKS_FROZEN;
 
 	switch (action) {
 	case CPU_DOWN_PREPARE:
 		new_trustee = kthread_create(trustee_thread, gcwq,
 					     "workqueue_trustee/%d\n", cpu);
+
+        MY_PRINTK("%s:%i @ %s:\n" 
+               "  new_trustee = 0x%p\n"
+            , __FILE__, __LINE__, __func__
+            , (void *) new_trustee
+            );
+
 		if (IS_ERR(new_trustee))
 			return notifier_from_errno(PTR_ERR(new_trustee));
 		kthread_bind(new_trustee, cpu);
@@ -3621,6 +3686,15 @@ static int __devinit workqueue_cpu_callback(struct notifier_block *nfb,
 	case CPU_UP_PREPARE:
 		BUG_ON(gcwq->first_idle);
 		new_worker = create_worker(gcwq, false);
+
+        MY_PRINTK("%s:%i @ %s:\n" 
+               "  new_worker = 0x%p\n"
+               "  gcwq = 0x%p\n"
+            , __FILE__, __LINE__, __func__
+            , (void *) new_worker
+            , (void *) gcwq
+            );
+
 		if (!new_worker) {
 			if (new_trustee)
 				kthread_stop(new_trustee);
@@ -3930,11 +4004,25 @@ int init_initial_worker(unsigned long int cpu)
     struct global_cwq *gcwq = get_gcwq(cpu);
     struct worker *worker;
 
+    if (cpu == WORK_TCM) {
+        MY_PRINTK("%s:%i @ %s:\n" 
+               "  i got called...\n"
+            , __FILE__, __LINE__, __func__
+            );
+    }
+
     if (cpu != WORK_CPU_UNBOUND || cpu != WORK_TCM)
         gcwq->flags &= ~GCWQ_DISASSOCIATED;
     worker = create_worker(gcwq, true);
     if (!worker)
         return -ENOMEM;
+    if (cpu == WORK_TCM) {
+        MY_PRINTK("%s:%i @ %s:\n" 
+               "  calling start_worker...\n"
+            , __FILE__, __LINE__, __func__
+            );
+    }
+    // TODO: why isn't start_worker getting called here...
     spin_lock_irq(&gcwq->lock);
     start_worker(worker);
     spin_unlock_irq(&gcwq->lock);

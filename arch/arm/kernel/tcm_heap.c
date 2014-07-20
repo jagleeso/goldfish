@@ -72,6 +72,7 @@ static unsigned long * alloc_sizes;
 
 static DEFINE_SPINLOCK(tcm_init_lock);
 static int initialized = 0;
+static int initializing = 0;
 
 static int __init tcm_code_pool_init(void)
 {
@@ -142,22 +143,37 @@ static int init_tcm_global_cwq(void);
 int late_tcm_code_setup(void)
 {
     int ret = 0;
+
     disable_dsps();
 
     unsigned long flags;
     spin_lock_irqsave(&tcm_init_lock, flags);
+    if (initializing || initialized) {
+        goto done_initializing;
+    }
+    initializing = 1;
+	spin_unlock_irqrestore(&tcm_init_lock, flags);
 
     if (!initialized) { 
+
         /* Do any one-time intialization.
          */
         ret = init_tcm_tboxes();
         if (ret) {
+            MY_PRINTK("%s:%i @ %s:\n" 
+                   "  init_tcm_boxes FAILED.\n"
+                , __FILE__, __LINE__, __func__
+                );
             goto fail_init_tcm_tboxes;
         }
 
 #ifndef NO_TCM
         ret = init_tcm_global_cwq();
         if (ret) {
+            MY_PRINTK("%s:%i @ %s:\n" 
+                   "  init_tcm_global_cwq FAILED.\n"
+                , __FILE__, __LINE__, __func__
+                );
             goto fail_init_tcm_global_cwq;
         }
 #endif
@@ -168,6 +184,9 @@ int late_tcm_code_setup(void)
 fail_init_tcm_global_cwq:
     /* TODO: revert tboxes to static ones */
 fail_init_tcm_tboxes:
+    spin_lock_irqsave(&tcm_init_lock, flags);
+    initializing = 0;
+done_initializing:
 	spin_unlock_irqrestore(&tcm_init_lock, flags);
 
     return ret;
@@ -178,11 +197,13 @@ EXPORT_SYMBOL(late_tcm_code_setup);
 static int init_tcm_global_cwq(void)
 {
     int ret = 0;
+
     ret = init_gcwq(WORK_TCM);
-    if (!ret)
+    if (ret)
         return ret;
+
     ret = init_initial_worker(WORK_TCM);
-    if (!ret)
+    if (ret)
         return ret;
 
 	system_tcm_wq = alloc_workqueue("events_tcm", WQ_TCM,
