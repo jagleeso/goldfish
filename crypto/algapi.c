@@ -971,15 +971,40 @@ void crypto_xor(u8 *dst, const u8 *src, unsigned int size)
 }
 EXPORT_SYMBOL_GPL(crypto_xor);
 
+#ifdef CONFIG_TCM_WORKQUEUE
+struct workqueue_struct * crypt_queue;
+EXPORT_SYMBOL_GPL(crypt_queue);
+#endif
 static int __init crypto_algapi_init(void)
 {
 	crypto_init_proc();
+
+#ifdef CONFIG_TCM_WORKQUEUE
+    crypt_queue = alloc_workqueue("crypto_workqueue",
+					  WQ_NON_REENTRANT|
+					  WQ_CPU_INTENSIVE|
+					  WQ_MEM_RECLAIM|
+                      WQ_TCM,
+					  1);
+    if (!crypt_queue) {
+        goto fail_crypt_queue;
+    }
+#endif
+
 	return 0;
+
+#ifdef CONFIG_TCM_WORKQUEUE
+fail_crypt_queue:
+	crypto_exit_proc();
+    return -ENOMEM;
+#endif
 }
 
 static void __exit crypto_algapi_exit(void)
 {
 	crypto_exit_proc();
+    destroy_workqueue(crypt_queue);
+    crypt_queue = NULL;
 }
 
 module_init(crypto_algapi_init);

@@ -25,6 +25,10 @@
 #include <linux/string.h>
 #include <linux/uaccess.h>
 
+#include <linux/module.h>
+#include <linux/tcm_heap.h>
+#include <linux/sched.h>
+
 #include <crypto/secure_alloc.h>
 
 /*
@@ -659,6 +663,118 @@ static inline struct crypto_ablkcipher *crypto_ablkcipher_reqtfm(
 	return __crypto_ablkcipher_cast(req->base.tfm);
 }
 
+#ifdef CONFIG_TCM_WORKQUEUE
+/* Queue crypto requests in a workqueue of TCM allocated threads 
+ * (or execute in the current thread if it's already TCM resident).
+ */
+extern struct workqueue_struct * crypt_queue;
+
+struct request_args {
+    void * req;
+};
+struct blkcipher_args {
+    struct blkcipher_desc *desc;
+    struct scatterlist *dst;
+    struct scatterlist *src;
+    unsigned int nbytes;
+};
+struct cipher_one_args {
+    struct crypto_cipher *tfm;
+    u8 *dst; 
+    const u8 *src;
+};
+struct crypto_work {
+    struct completion done;
+    int return_code;
+
+    struct work_struct work;
+
+    union {
+        struct request_args args;
+    } args;
+
+};
+
+#define DEFINE_CRYPTO_WORK_FUNC(name, args_struct, unpack_args, func_body, return_expr) \
+    static void __##name(struct work_struct *work)  \
+    { \
+        /* Unpack containing crypto_work struct. \
+         */ \
+        struct crypto_work *c = container_of(work, struct crypto_work, work); \
+        /* Extract original arguments from args. \
+         */ \
+        struct args_struct * args = (struct args_struct *) &c->args; \
+        unpack_args; \
+ \
+        /* Original function (plus setting code and signaling completion). \
+         */ \
+        ({ \
+         func_body; \
+         c->return_code = return_expr; \
+         }); \
+ \
+        complete(&c->done); \
+    } \
+
+#define DEFINE_CRYPTO_FUNC_BODY(name, args_struct, pack_args) \
+{ \
+    struct crypto_work c; \
+ \
+    /* Queue arguments. \
+    */ \
+    struct args_struct * args = (struct args_struct *) &c.args; \
+    pack_args; \
+ \
+    /* Initialize crypto_work. \
+    */ \
+    c.return_code = 0; \
+    init_completion(&c.done); \
+    INIT_WORK(&c.work, __crypto_ablkcipher_encrypt); \
+ \
+    if (tcm_code_initialized() && !current->tcm_resident) { \
+        queue_work(crypt_queue, &c.work); \
+        wait_for_completion(&c.done); \
+        return c.return_code; \
+    } \
+ \
+    WARN_ONCE(!tcm_code_initialized(),  \
+            "TCM code is not initalized; encrypting/decrypting in unsecure DRAM instead!"); \
+    __##name(&c.work); \
+    return c.return_code; \
+} \
+
+#endif /* CONFIG_TCM_WORKQUEUE */
+
+#ifdef CONFIG_TCM_WORKQUEUE
+
+DEFINE_CRYPTO_WORK_FUNC(crypto_ablkcipher_encrypt, request_args,
+        struct ablkcipher_request *req = args->req;
+        ,
+        struct ablkcipher_tfm *crt =
+            crypto_ablkcipher_crt(crypto_ablkcipher_reqtfm(req));
+        ,
+        crt->encrypt(req)
+        );
+static inline int crypto_ablkcipher_encrypt(struct ablkcipher_request *req)
+    DEFINE_CRYPTO_FUNC_BODY(crypto_ablkcipher_encrypt, request_args,
+            args->req = req;
+            );
+    
+DEFINE_CRYPTO_WORK_FUNC(crypto_ablkcipher_decrypt, request_args,
+        struct ablkcipher_request *req = args->req;
+        ,
+        struct ablkcipher_tfm *crt =
+            crypto_ablkcipher_crt(crypto_ablkcipher_reqtfm(req));
+        ,
+        crt->decrypt(req)
+        );
+static inline int crypto_ablkcipher_decrypt(struct ablkcipher_request *req)
+    DEFINE_CRYPTO_FUNC_BODY(crypto_ablkcipher_decrypt, request_args,
+            args->req = req;
+            );
+    
+#else /* !CONFIG_TCM_WORKQUEUE */
+
 static inline int crypto_ablkcipher_encrypt(struct ablkcipher_request *req)
 {
 	struct ablkcipher_tfm *crt =
@@ -672,6 +788,8 @@ static inline int crypto_ablkcipher_decrypt(struct ablkcipher_request *req)
 		crypto_ablkcipher_crt(crypto_ablkcipher_reqtfm(req));
 	return crt->decrypt(req);
 }
+
+#endif /* CONFIG_TCM_WORKQUEUE */
 
 static inline unsigned int crypto_ablkcipher_reqsize(
 	struct crypto_ablkcipher *tfm)
@@ -802,6 +920,32 @@ static inline struct crypto_aead *crypto_aead_reqtfm(struct aead_request *req)
 	return __crypto_aead_cast(req->base.tfm);
 }
 
+#ifdef CONFIG_TCM_WORKQUEUE
+
+DEFINE_CRYPTO_WORK_FUNC(crypto_aead_encrypt, request_args,
+        struct aead_request *req = args->req;
+        ,
+        ,
+        crypto_aead_crt(crypto_aead_reqtfm(req))->encrypt(req)
+        );
+static inline int crypto_aead_encrypt(struct aead_request *req)
+    DEFINE_CRYPTO_FUNC_BODY(crypto_aead_encrypt, request_args,
+            args->req = req;
+            );
+
+DEFINE_CRYPTO_WORK_FUNC(crypto_aead_decrypt, request_args,
+        struct aead_request *req = args->req;
+        ,
+        ,
+        crypto_aead_crt(crypto_aead_reqtfm(req))->decrypt(req)
+        );
+static inline int crypto_aead_decrypt(struct aead_request *req)
+    DEFINE_CRYPTO_FUNC_BODY(crypto_aead_decrypt, request_args,
+            args->req = req;
+            );
+
+#else /* !CONFIG_TCM_WORKQUEUE */
+
 static inline int crypto_aead_encrypt(struct aead_request *req)
 {
 	return crypto_aead_crt(crypto_aead_reqtfm(req))->encrypt(req);
@@ -811,6 +955,8 @@ static inline int crypto_aead_decrypt(struct aead_request *req)
 {
 	return crypto_aead_crt(crypto_aead_reqtfm(req))->decrypt(req);
 }
+
+#endif /* CONFIG_TCM_WORKQUEUE */
 
 static inline unsigned int crypto_aead_reqsize(struct crypto_aead *tfm)
 {
@@ -971,6 +1117,69 @@ static inline int crypto_blkcipher_setkey(struct crypto_blkcipher *tfm,
 						 key, keylen);
 }
 
+#ifdef CONFIG_TCM_WORKQUEUE
+
+#define DEFINE_CRYPTO_WORK_FUNC_BLKCIPHER(name, func_body, return_expr) \
+    DEFINE_CRYPTO_WORK_FUNC(name, blkcipher_args, \
+            struct blkcipher_desc *desc = args->desc; \
+            struct scatterlist *dst = args->dst; \
+            struct scatterlist *src = args->src; \
+            unsigned int nbytes = args->nbytes; \
+            , \
+            func_body, return_expr) \
+
+#define DEFINE_CRYPTO_FUNC_BODY_BLKCHIPER(name) \
+    DEFINE_CRYPTO_FUNC_BODY(name, blkcipher_args, \
+            args->desc = desc; \
+            args->dst = dst; \
+            args->src = src; \
+            args->nbytes = nbytes; \
+            ); \
+
+DEFINE_CRYPTO_WORK_FUNC_BLKCIPHER(crypto_blkcipher_encrypt,
+        desc->info = crypto_blkcipher_crt(desc->tfm)->iv;
+        ,
+        crypto_blkcipher_crt(desc->tfm)->encrypt(desc, dst, src, nbytes)
+        );
+static inline int crypto_blkcipher_encrypt(struct blkcipher_desc *desc,
+					   struct scatterlist *dst,
+					   struct scatterlist *src,
+					   unsigned int nbytes)
+    DEFINE_CRYPTO_FUNC_BODY_BLKCHIPER(crypto_blkcipher_encrypt);
+
+DEFINE_CRYPTO_WORK_FUNC_BLKCIPHER(crypto_blkcipher_encrypt_iv,
+        ,
+        crypto_blkcipher_crt(desc->tfm)->encrypt(desc, dst, src, nbytes)
+        );
+static inline int crypto_blkcipher_encrypt_iv(struct blkcipher_desc *desc,
+					      struct scatterlist *dst,
+					      struct scatterlist *src,
+					      unsigned int nbytes)
+    DEFINE_CRYPTO_FUNC_BODY_BLKCHIPER(crypto_blkcipher_encrypt_iv);
+
+DEFINE_CRYPTO_WORK_FUNC_BLKCIPHER(crypto_blkcipher_decrypt,
+        desc->info = crypto_blkcipher_crt(desc->tfm)->iv;
+        ,
+        crypto_blkcipher_crt(desc->tfm)->decrypt(desc, dst, src, nbytes)
+        );
+static inline int crypto_blkcipher_decrypt(struct blkcipher_desc *desc,
+					   struct scatterlist *dst,
+					   struct scatterlist *src,
+					   unsigned int nbytes)
+    DEFINE_CRYPTO_FUNC_BODY_BLKCHIPER(crypto_blkcipher_decrypt);
+
+DEFINE_CRYPTO_WORK_FUNC_BLKCIPHER(crypto_blkcipher_decrypt_iv,
+        ,
+        crypto_blkcipher_crt(desc->tfm)->decrypt(desc, dst, src, nbytes)
+        );
+static inline int crypto_blkcipher_decrypt_iv(struct blkcipher_desc *desc,
+					      struct scatterlist *dst,
+					      struct scatterlist *src,
+					      unsigned int nbytes)
+    DEFINE_CRYPTO_FUNC_BODY_BLKCHIPER(crypto_blkcipher_decrypt_iv);
+
+#else /* !CONFIG_TCM_WORKQUEUE */
+
 static inline int crypto_blkcipher_encrypt(struct blkcipher_desc *desc,
 					   struct scatterlist *dst,
 					   struct scatterlist *src,
@@ -1004,6 +1213,9 @@ static inline int crypto_blkcipher_decrypt_iv(struct blkcipher_desc *desc,
 {
 	return crypto_blkcipher_crt(desc->tfm)->decrypt(desc, dst, src, nbytes);
 }
+
+#endif /* CONFIG_TCM_WORKQUEUE */
+
 
 static inline void crypto_blkcipher_set_iv(struct crypto_blkcipher *tfm,
 					   const u8 *src, unsigned int len)
@@ -1096,6 +1308,45 @@ static inline int crypto_cipher_setkey(struct crypto_cipher *tfm,
 						  key, keylen);
 }
 
+#ifdef CONFIG_TCM_WORKQUEUE
+
+#define DEFINE_CRYPTO_WORK_FUNC_CIPHER_ONE(name, func_body, return_expr) \
+    DEFINE_CRYPTO_WORK_FUNC(name, cipher_one_args, \
+            struct crypto_cipher *tfm = args->tfm; \
+            u8 *dst = args->dst;  \
+            const u8 *src = args->src; \
+            , \
+            func_body, return_expr) \
+
+#define DEFINE_CRYPTO_FUNC_BODY_CIPHER_ONE(name) \
+    DEFINE_CRYPTO_FUNC_BODY(name, cipher_one_args, \
+            args->tfm = tfm; \
+            args->dst = dst; \
+            args->src = src; \
+            ); \
+
+DEFINE_CRYPTO_WORK_FUNC_CIPHER_ONE(crypto_cipher_encrypt_one,
+        crypto_cipher_crt(tfm)->cit_encrypt_one(crypto_cipher_tfm(tfm),
+            dst, src);
+        ,
+        0
+        );
+static inline int crypto_cipher_encrypt_one(struct crypto_cipher *tfm,
+					     u8 *dst, const u8 *src)
+    DEFINE_CRYPTO_FUNC_BODY_CIPHER_ONE(crypto_cipher_encrypt_one);
+
+DEFINE_CRYPTO_WORK_FUNC_CIPHER_ONE(crypto_cipher_decrypt_one,
+        crypto_cipher_crt(tfm)->cit_decrypt_one(crypto_cipher_tfm(tfm),
+            dst, src);
+        ,
+        0
+        );
+static inline int crypto_cipher_decrypt_one(struct crypto_cipher *tfm,
+					     u8 *dst, const u8 *src)
+    DEFINE_CRYPTO_FUNC_BODY_CIPHER_ONE(crypto_cipher_decrypt_one);
+
+#else /* !CONFIG_TCM_WORKQUEUE */
+
 static inline void crypto_cipher_encrypt_one(struct crypto_cipher *tfm,
 					     u8 *dst, const u8 *src)
 {
@@ -1109,6 +1360,8 @@ static inline void crypto_cipher_decrypt_one(struct crypto_cipher *tfm,
 	crypto_cipher_crt(tfm)->cit_decrypt_one(crypto_cipher_tfm(tfm),
 						dst, src);
 }
+
+#endif /* CONFIG_TCM_WORKQUEUE */
 
 static inline struct crypto_hash *__crypto_hash_cast(struct crypto_tfm *tfm)
 {

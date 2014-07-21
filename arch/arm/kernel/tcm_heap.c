@@ -231,6 +231,7 @@ int tcm_code_initialized(void)
 	spin_unlock_irqrestore(&tcm_init_lock, flags);
     return _initialized;
 }
+EXPORT_SYMBOL(tcm_code_initialized);
 
 static void tcm_code_pool_destroy(void)
 {
