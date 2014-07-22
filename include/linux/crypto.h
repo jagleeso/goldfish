@@ -729,7 +729,7 @@ struct crypto_work {
     */ \
     c.return_code = 0; \
     init_completion(&c.done); \
-    INIT_WORK(&c.work, __crypto_ablkcipher_encrypt); \
+    INIT_WORK(&c.work, __##name); \
  \
     if (tcm_code_initialized() && !current->tcm_resident) { \
         queue_work(crypt_queue, &c.work); \
@@ -1125,6 +1125,17 @@ static inline int crypto_blkcipher_setkey(struct crypto_blkcipher *tfm,
             struct scatterlist *dst = args->dst; \
             struct scatterlist *src = args->src; \
             unsigned int nbytes = args->nbytes; \
+            MY_PRINTK("%s:%i @ %s:\n"  \
+                   "  desc = 0x%p\n" \
+                   "  dst = 0x%p\n" \
+                   "  src = 0x%p\n" \
+                   "  nbytes = %u\n" \
+                , __FILE__, __LINE__, __func__ \
+                , (void *) desc \
+                , (void *) dst  \
+                , (void *) src  \
+                , nbytes  \
+                ); \
             , \
             func_body, return_expr) \
 

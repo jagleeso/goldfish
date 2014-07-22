@@ -139,7 +139,6 @@ static int init_tcm_global_cwq(void);
  * hasn't been disabled. So, more intialization will happen on module load (when we 
  * can disable DSPS).
  */
-/* #define NO_TCM */
 int late_tcm_code_setup(void)
 {
     int ret = 0;
@@ -167,7 +166,6 @@ int late_tcm_code_setup(void)
             goto fail_init_tcm_tboxes;
         }
 
-#ifndef NO_TCM
         ret = init_tcm_global_cwq();
         if (ret) {
             MY_PRINTK("%s:%i @ %s:\n" 
@@ -176,7 +174,6 @@ int late_tcm_code_setup(void)
                 );
             goto fail_init_tcm_global_cwq;
         }
-#endif
 
         initialized = 1;
     }
@@ -198,6 +195,7 @@ static int init_tcm_global_cwq(void)
 {
     int ret = 0;
 
+#ifdef CONFIG_TCM_WORKQUEUE
     ret = init_gcwq(WORK_TCM);
     if (ret)
         return ret;
@@ -209,6 +207,7 @@ static int init_tcm_global_cwq(void)
 	system_tcm_wq = alloc_workqueue("events_tcm", WQ_TCM,
 					    WQ_UNBOUND_MAX_ACTIVE);
     BUG_ON(!system_tcm_wq);
+#endif
 
     return ret;
 }
@@ -391,7 +390,7 @@ static int init_tcm_tboxes(void)
         } \
     } \
     tcm_code_free((void *)box); \
-    crypto_it_tab = __static_##box; \
+    box = __static_##box; \
 
 fail_crypto_it_tab:
     REVERT_BOX(crypto_it_tab);
