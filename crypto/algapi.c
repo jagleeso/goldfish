@@ -972,7 +972,7 @@ void crypto_xor(u8 *dst, const u8 *src, unsigned int size)
 EXPORT_SYMBOL_GPL(crypto_xor);
 
 #ifdef CONFIG_TCM_WORKQUEUE
-struct workqueue_struct * crypt_queue;
+struct workqueue_struct * crypt_queue = NULL;
 EXPORT_SYMBOL_GPL(crypt_queue);
 #endif
 static int __init crypto_algapi_init(void)
@@ -1003,8 +1003,12 @@ fail_crypt_queue:
 static void __exit crypto_algapi_exit(void)
 {
 	crypto_exit_proc();
-    destroy_workqueue(crypt_queue);
+#ifdef CONFIG_TCM_WORKQUEUE
+    if (crypt_queue) {
+        destroy_workqueue(crypt_queue);
+    }
     crypt_queue = NULL;
+#endif
 }
 
 module_init(crypto_algapi_init);

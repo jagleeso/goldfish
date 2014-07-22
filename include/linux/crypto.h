@@ -663,12 +663,17 @@ static inline struct crypto_ablkcipher *crypto_ablkcipher_reqtfm(
 	return __crypto_ablkcipher_cast(req->base.tfm);
 }
 
+extern struct workqueue_struct * crypt_queue;
+
 #ifdef CONFIG_TCM_WORKQUEUE
 /* Queue crypto requests in a workqueue of TCM allocated threads 
  * (or execute in the current thread if it's already TCM resident).
  */
-extern struct workqueue_struct * crypt_queue;
 
+
+/* NOTE!
+ * Don't forget to put new structs in the union below!
+ */
 struct request_args {
     void * req;
 };
@@ -690,7 +695,10 @@ struct crypto_work {
     struct work_struct work;
 
     union {
-        struct request_args args;
+        // Don't forget me!
+        struct request_args request_args;
+        struct blkcipher_args blkcipher_args;
+        struct cipher_one_args cipher_one_args;
     } args;
 
 };
