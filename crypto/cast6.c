@@ -455,6 +455,11 @@ static void cast6_encrypt(struct crypto_tfm *tfm, u8 *outbuf, const u8 *inbuf)
 	u32 *Km;
 	u8 *Kr;
 
+    /* MY_PRINTK("%s:%i @ %s:\n"  */
+    /*        "  I am running\n" */
+    /*     , __FILE__, __LINE__, __func__ */
+    /*     ); */
+
 	block[0] = be32_to_cpu(src[0]);
 	block[1] = be32_to_cpu(src[1]);
 	block[2] = be32_to_cpu(src[2]);

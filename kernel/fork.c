@@ -134,7 +134,7 @@ static struct thread_info *alloc_thread_info_node(struct task_struct *tsk,
 #endif
     struct page * page;
 /* #if 0 */
-#ifdef CONFIG_TCM_HEAP
+#ifdef CONFIG_TCM_THREAD
     if (unlikely(tsk->tcm_resident)) {
         struct thread_info * ti = (struct thread_info *) tcm_code_alloc_aligned(THREAD_SIZE, THREAD_SIZE_BYTES_ORDER);
         MY_PRINTK("%s:%i @ %s:\n" 
@@ -154,7 +154,7 @@ static struct thread_info *alloc_thread_info_node(struct task_struct *tsk,
 static inline void free_thread_info(struct thread_info *ti)
 {
 /* #if 0 */
-#ifdef CONFIG_TCM_HEAP
+#ifdef CONFIG_TCM_THREAD
     if (unlikely(ti != NULL && ti->task != NULL && ti->task->tcm_resident)) {
         tcm_code_free(ti);
         return;
@@ -361,11 +361,32 @@ static struct task_struct *dup_task_struct(struct task_struct *orig)
     }
 #endif
 
+#ifdef CONFIG_TCM_HEAP
+#define prstr(str) \
+    if (tsk->tcm_resident) { \
+        MY_PRINTK("%s:%i @ %s:\n"  \
+                "  " str "\n" \
+                , __FILE__, __LINE__, __func__ \
+                ); \
+    } \
+
+#else
+#define prstr(str)
+#endif
+
+    prstr("One 1");
 	setup_thread_stack(tsk, orig);
+    prstr("One 2");
 	clear_user_return_notifier(tsk);
+    prstr("One 3");
+    /* First error occurs
+     */
 	clear_tsk_need_resched(tsk);
+    prstr("One 4");
 	stackend = end_of_stack(tsk);
+    prstr("One 5");
 	*stackend = STACK_END_MAGIC;	/* for overflow detection */
+    prstr("One 6");
 
 #ifdef CONFIG_CC_STACKPROTECTOR
 	tsk->stack_canary = get_random_int();
@@ -1539,6 +1560,14 @@ static struct task_struct *copy_process(unsigned long clone_flags,
 
 	trace_task_newtask(p, clone_flags);
 
+#ifdef CONFIG_TCM_HEAP
+    if (p->tcm_resident) {
+        MY_PRINTK("%s:%i @ %s:\n" 
+                "  end of copy_process\n"
+                , __FILE__, __LINE__, __func__
+                );
+    }
+#endif
 	return p;
 
 bad_fork_free_pid:
@@ -1708,6 +1737,14 @@ long do_fork(unsigned long clone_flags,
 			if (!wait_for_vfork_done(p, &vfork))
 				ptrace_event(PTRACE_EVENT_VFORK_DONE, nr);
 		}
+#ifdef CONFIG_TCM_HEAP
+        if (p->tcm_resident) {
+            MY_PRINTK("%s:%i @ %s:\n" 
+                    "  end of do_fork\n"
+                    , __FILE__, __LINE__, __func__
+                    );
+        }
+#endif
 	} else {
 		nr = PTR_ERR(p);
 	}

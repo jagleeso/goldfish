@@ -120,3 +120,12 @@ pmd_t pmdp_splitting_flush(struct vm_area_struct *vma, unsigned long address,
 }
 #endif /* CONFIG_TRANSPARENT_HUGEPAGE */
 #endif
+
+pte_t ptep_test_and_set_encrypted(pte_t pte)
+{
+	if (PageEncrypted(pte_page(pte)) && !pte_encrypted(pte)) {
+		pte = pte_mkold(pte);
+		pte = pte_mkencrypted(pte);
+	}
+	return pte;
+}

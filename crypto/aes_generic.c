@@ -1368,6 +1368,11 @@ static void aes_encrypt(struct crypto_tfm *tfm, u8 *out, const u8 *in)
 	const u32 *kp = ctx->key_enc + 4;
 	const int key_len = ctx->key_length;
 
+    /* MY_PRINTK("%s:%i @ %s:\n"  */
+    /*        "  I am running\n" */
+    /*     , __FILE__, __LINE__, __func__ */
+    /*     ); */
+
 	b0[0] = le32_to_cpu(src[0]) ^ ctx->key_enc[0];
 	b0[1] = le32_to_cpu(src[1]) ^ ctx->key_enc[1];
 	b0[2] = le32_to_cpu(src[2]) ^ ctx->key_enc[2];

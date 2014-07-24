@@ -35,6 +35,7 @@
 #include <linux/memcontrol.h>
 #include <linux/cleancache.h>
 #include "internal.h"
+#include <linux/mem_encrypt.h>
 
 /*
  * FIXME: remove all knowledge of the buffer layer from the core VM
@@ -1301,6 +1302,10 @@ int file_read_actor(read_descriptor_t *desc, struct page *page,
 {
 	char *kaddr;
 	unsigned long left, count = desc->count;
+	if (PageEncrypted(page)) {
+		printk("%s:file_read_actor: pageEncrypted @pfn %lu\n", current->comm, page_to_pfn(page));
+		decrypt_page(page);
+	}
 
 	if (size > count)
 		size = count;

@@ -87,6 +87,8 @@
 #define CREATE_TRACE_POINTS
 #include <trace/events/sched.h>
 
+#include <linux/mem_encrypt.h>
+
 void start_bandwidth_timer(struct hrtimer *period_timer, ktime_t period)
 {
 	unsigned long delta;
@@ -2085,6 +2087,12 @@ context_switch(struct rq *rq, struct task_struct *prev,
 #ifndef __ARCH_WANT_UNLOCKED_CTXSW
 	spin_release(&rq->lock.dep_map, 1, _THIS_IP_);
 #endif
+
+	if (next->flags & PF_ENCRYPTED && !(next->state > 0)) {
+		printk("%s %s PF_ENCRYPTED %u \n", __func__, next->comm, next->flags & PF_ENCRYPTED);
+		decrypt_dma(next);
+		next->flags &= ~PF_ENCRYPTED;
+	}
 
 #ifdef CONFIG_QEMU_TRACE
 	/* Emit a trace record for the context switch. */

@@ -995,7 +995,7 @@ static int __init crypto_algapi_init(void)
 
 #ifdef CONFIG_TCM_WORKQUEUE
 fail_crypt_queue:
-	crypto_exit_proc();
+	/* crypto_exit_proc(); */
     return -ENOMEM;
 #endif
 }

@@ -36,6 +36,13 @@ extern struct fs_struct init_fs;
 #define INIT_CPUSET_SEQ
 #endif
 
+#ifdef CONFIG_TCM_HEAP
+#define INIT_TCM_RESIDENT							\
+	.tcm_resident = 0,
+#else
+#define INIT_TCM_RESIDENT
+#endif
+
 #define INIT_SIGNALS(sig) {						\
 	.nr_threads	= 1,						\
 	.wait_chldexit	= __WAIT_QUEUE_HEAD_INITIALIZER(sig.wait_chldexit),\
@@ -200,6 +207,7 @@ extern struct cred init_cred;
 	INIT_TRACE_RECURSION						\
 	INIT_TASK_RCU_PREEMPT(tsk)					\
 	INIT_CPUSET_SEQ							\
+	INIT_TCM_RESIDENT							\
 }
 
 

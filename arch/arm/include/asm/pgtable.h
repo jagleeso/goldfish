@@ -220,6 +220,7 @@ static inline void set_pte_at(struct mm_struct *mm, unsigned long addr,
 #define pte_dirty(pte)		(pte_val(pte) & L_PTE_DIRTY)
 #define pte_young(pte)		(pte_val(pte) & L_PTE_YOUNG)
 #define pte_exec(pte)		(!(pte_val(pte) & L_PTE_XN))
+#define pte_encrypted(pte)	(pte_val(pte) & L_PTE_ENCRYPTED)
 #define pte_special(pte)	(0)
 
 #define pte_present_user(pte) \
@@ -235,6 +236,8 @@ PTE_BIT_FUNC(mkclean,   &= ~L_PTE_DIRTY);
 PTE_BIT_FUNC(mkdirty,   |= L_PTE_DIRTY);
 PTE_BIT_FUNC(mkold,     &= ~L_PTE_YOUNG);
 PTE_BIT_FUNC(mkyoung,   |= L_PTE_YOUNG);
+PTE_BIT_FUNC(mkencrypted,   |= L_PTE_ENCRYPTED);
+PTE_BIT_FUNC(mkdecrypted,   &= ~L_PTE_ENCRYPTED);
 
 static inline pte_t pte_mkspecial(pte_t pte) { return pte; }
 

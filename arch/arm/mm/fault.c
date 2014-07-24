@@ -27,6 +27,7 @@
 #include <asm/tlbflush.h>
 
 #include "fault.h"
+#include <linux/mem_encrypt.h>
 
 #ifdef CONFIG_MMU
 
@@ -202,6 +203,7 @@ void do_bad_area(unsigned long addr, unsigned int fsr, struct pt_regs *regs)
 #ifdef CONFIG_MMU
 #define VM_FAULT_BADMAP		0x010000
 #define VM_FAULT_BADACCESS	0x020000
+#define VM_FAULT_ENCRYPTED	0x040000
 
 /*
  * Check that the permissions on the VMA allow for the fault which occurred.
@@ -225,8 +227,37 @@ __do_page_fault(struct mm_struct *mm, unsigned long addr, unsigned int fsr,
 		unsigned int flags, struct task_struct *tsk)
 {
 	struct vm_area_struct *vma;
+	struct page *pg;
 	int fault;
+	pte_t *ptep, pte;
 
+	ptep = vir_to_pte(mm, addr);
+	if (ptep == NULL) 
+		goto normal;
+
+	if (!pte_encrypted(*ptep))
+		goto normal;
+
+	pg = pte_page(*ptep);
+	if (pg == NULL)
+		goto normal;
+
+	if (!PageEncrypted(pg)) {
+		pte = pte_mkdecrypted(*ptep);
+		set_pte_at(mm, addr, ptep, pte);
+		goto normal;
+	}
+
+	if (decrypt_page(pg)) {
+		fault = VM_FAULT_ENCRYPTED;
+		pte = pte_mkyoung(pte_mkdecrypted(*ptep));
+		set_pte_at(mm, addr, ptep, pte);
+		goto out;
+	}
+
+normal:
+
+//-----------------------------------------------------------------
 	vma = find_vma(mm, addr);
 	fault = VM_FAULT_BADMAP;
 	if (unlikely(!vma))
@@ -307,6 +338,10 @@ retry:
 	}
 
 	fault = __do_page_fault(mm, addr, fsr, flags, tsk);
+	if (fault & VM_FAULT_ENCRYPTED) {
+		up_read(&mm->mmap_sem);
+		return 0;
+	}
 
 	/* If we need to retry but a fatal signal is pending, handle the
 	 * signal first. We do not need to release the mmap_sem because

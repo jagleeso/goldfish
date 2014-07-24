@@ -29,6 +29,106 @@
 
 #include "power.h"
 
+#include <linux/mem_encrypt.h>
+#include <linux/time.h>
+#include <linux/kthread.h>
+
+DEFINE_SPINLOCK(suspend_notify_lock);
+DECLARE_COMPLETION(suspend_complete);
+static int suspend_notify_req_pending = 0;
+
+DEFINE_SPINLOCK(enable_encryption_lock);
+/* Encryption is disabled by default.
+ */
+static int encryption_enabled = 0;
+
+void req_suspend_notification(void) 
+{
+    unsigned long flags;
+    printk("%s:%i, HELLO suspend_notify_req_pending == %i\n", __func__, __LINE__, suspend_notify_req_pending);
+
+    spin_lock_irqsave(&suspend_notify_lock, flags);
+
+    /* Only one process should be able to get a notification.
+     */
+    BUG_ON(suspend_notify_req_pending);
+
+    suspend_notify_req_pending = 1;
+    spin_unlock_irqrestore(&suspend_notify_lock, flags);
+}
+EXPORT_SYMBOL_GPL(req_suspend_notification);
+
+void wait_for_suspend(void) 
+{
+    unsigned long flags;
+    printk("%s:%i, suspend_complete.done == %u, suspend_notify_req_pending == %i\n", __func__, __LINE__, suspend_complete.done, suspend_notify_req_pending);
+
+    spin_lock_irqsave(&suspend_notify_lock, flags);
+    /* Process firsts needs to request to be notified.
+     */
+    BUG_ON(!suspend_notify_req_pending);
+    spin_unlock_irqrestore(&suspend_notify_lock, flags);
+
+    wait_for_completion(&suspend_complete);
+    INIT_COMPLETION(suspend_complete);
+    spin_lock_irqsave(&suspend_notify_lock, flags);
+    suspend_notify_req_pending = 0;
+    spin_unlock_irqrestore(&suspend_notify_lock, flags);
+}
+EXPORT_SYMBOL_GPL(wait_for_suspend);
+
+void disable_encryption(void)
+{
+    unsigned long flags;
+    printk("%s:%i, encryption_enabled == %i\n", __func__, __LINE__, encryption_enabled);
+
+    /* It's ok it it's already disabled.
+     */
+
+    spin_lock_irqsave(&enable_encryption_lock, flags);
+    encryption_enabled = 0;
+    spin_unlock_irqrestore(&enable_encryption_lock, flags);
+}
+EXPORT_SYMBOL_GPL(disable_encryption);
+
+void enable_encryption(void)
+{
+    unsigned long flags;
+    printk("%s:%i, encryption_enabled == %i\n", __func__, __LINE__, encryption_enabled);
+
+    spin_lock_irqsave(&enable_encryption_lock, flags);
+    BUG_ON(encryption_enabled);
+    encryption_enabled = 1;
+    spin_unlock_irqrestore(&enable_encryption_lock, flags);
+}
+EXPORT_SYMBOL_GPL(enable_encryption);
+
+int is_encryption_enabled(void)
+{
+    unsigned long flags;
+    int retval;
+    printk("%s:%i, encryption_enabled == %i\n", __func__, __LINE__, encryption_enabled);
+
+    spin_lock_irqsave(&enable_encryption_lock, flags);
+    retval = encryption_enabled;
+    spin_unlock_irqrestore(&enable_encryption_lock, flags);
+    return retval;
+}
+
+void notify_suspend(void) 
+{
+    unsigned long flags;
+    printk("%s:%i, suspend_complete.done == %u, suspend_notify_req_pending == %i\n", __func__, __LINE__, suspend_complete.done, suspend_notify_req_pending);
+    spin_lock_irqsave(&suspend_notify_lock, flags);
+    if (suspend_notify_req_pending) {
+        /* A process has requested to be notified that suspend has finished. Signal this to it by 
+         * incrementing the semaphore so it either unblocks (or doesn't block in the first place).
+         */
+        complete(&suspend_complete);
+    }
+    spin_unlock_irqrestore(&suspend_notify_lock, flags);
+}
+
 const char *const pm_states[PM_SUSPEND_MAX] = {
 	[PM_SUSPEND_STANDBY]	= "standby",
 	[PM_SUSPEND_MEM]	= "mem",
@@ -126,6 +226,124 @@ void __attribute__ ((weak)) arch_suspend_enable_irqs(void)
 	local_irq_enable();
 }
 
+/* static int SUSPEND_BUSY_WAIT_SEC = 10; */
+/* static int usec(struct timeval t) { */
+/*     return (t.tv_sec*1e6) + t.tv_usec; */
+/*     #<{(| return 0; |)}># */
+/* } */
+
+/* static void busy_wait(int duration) { */
+/*  */
+/*     #<{(| struct timeval start, cur; |)}># */
+/*     unsigned long end = jiffies + (unsigned long) ((SUSPEND_BUSY_WAIT_SEC*1e3)/HZ); */
+/*  */
+/* 	BUG_ON(irqs_disabled()); */
+/*     #<{(| unsigned long j1 = jiffies +  |)}># */
+/*     #<{(| do_gettimeofday(&start); |)}># */
+/*     printk("SUSPEND: start busy wait ...\n"); */
+/*     do { */
+/*         #<{(| do_gettimeofday(&cur); |)}># */
+/*         cpu_relax(); */
+/*     } while (time_before(jiffies, end)); */
+/*     #<{(| } while (usec(cur) - usec(start) < SUSPEND_BUSY_WAIT_SEC*1e6); |)}># */
+/*     #<{(| } while (1); |)}># */
+/*     printk("SUSPEND: end busy wait after %i seconds.\n", SUSPEND_BUSY_WAIT_SEC); */
+/*  */
+/* } */
+
+struct suspend_crypto_thread_args {
+    struct completion suspend_crypto_thread_done;
+    struct completion sensitive_processes_frozen;
+    int return_code;
+} _args;
+void init_args(void) 
+{
+    init_completion(&_args.sensitive_processes_frozen);
+    init_completion(&_args.suspend_crypto_thread_done);
+    _args.return_code = 0;
+}
+struct task_struct * suspend_crypto_thread;
+static int do_suspend_crypto_thread(void * data)
+{
+    struct suspend_crypto_thread_args * args = data;
+
+    /* This thread is not frozen by the normal suspend path (in try_to_freeze_tasks(false)).
+     *
+     * Instead, we freeze it after it's done its job of encrypting the sensitive processes.
+     */
+	current->flags |= PF_NOFREEZE;
+    
+    while (true) {
+
+        wait_for_completion(&args->sensitive_processes_frozen);
+        init_completion(&args->sensitive_processes_frozen);
+
+        MY_PRINTK("%s:%i @ %s:\n" 
+                "  current->tcm_resident = %i\n"
+                , __FILE__, __LINE__, __func__
+                , current->tcm_resident
+                );
+
+        printk("SUSPEND: begin encryption\n");
+        encrypt_task_and_update_pte();
+        printk("SUSPEND: done encryption\n");
+
+        args->return_code = 0;
+
+        complete(&args->suspend_crypto_thread_done);
+
+        /* current->flags &= ~PF_NOFREEZE; */
+        /* try_to_freeze(); */
+        // TODO: 
+        // - we need to be unfrozen before any of the sensitive processes so we can decrypt them.
+        // - we need to have our flag set back to PF_NOFREEZE in the right place (to prevent 
+        //   being unfrozen like sensitive processes in normal code path?)
+        /* current->flags &= ~PF_NOFREEZE; */
+
+    }
+
+    do_exit(0);
+    return 0;
+}
+static int encrypt_sensitive_processes(void)
+{
+    complete(&_args.sensitive_processes_frozen);
+    wait_for_completion(&_args.suspend_crypto_thread_done);
+    init_completion(&_args.suspend_crypto_thread_done);
+    return 0;
+}
+static int setup_suspend_crypto_thread(void)
+{
+    int ret = 0;
+
+    init_args();
+
+    suspend_crypto_thread = kthread_create(do_suspend_crypto_thread, &_args, "do_suspend_crypto_thread");
+    MY_PRINTK("%s:%i @ %s:\n" 
+            "  suspend_crypto_thread = 0x%p\n"
+            , __FILE__, __LINE__, __func__
+            , (void *) suspend_crypto_thread
+            );
+	if (IS_ERR(suspend_crypto_thread)) {
+		MY_PRINTK("  %s - kthread_create() failed\n", __func__);
+        ret = PTR_ERR(suspend_crypto_thread);
+        goto failure;
+	}
+	wake_up_process(suspend_crypto_thread);
+
+    /* current->tcm_resident = 1; */
+    /* // TODO: encrypt kernel thread. */
+    /* current->tcm_resident = 0; */
+
+    /* Wait for suspend_crypto_thread to finish.
+     */
+    /* wait_for_completion(&_args.suspend_crypto_thread_done); */
+
+    return _args.return_code;
+failure:
+    return ret;
+}
+
 /**
  * suspend_enter - Make the system enter the given sleep state.
  * @state: System sleep state to enter.
@@ -158,12 +376,23 @@ static int suspend_enter(suspend_state_t state, bool *wakeup)
 	if (suspend_test(TEST_PLATFORM))
 		goto Platform_wake;
 
+    error = encrypt_sensitive_processes();
+    if (error) {
+        MY_PRINTK("%s:%i @ %s:\n" 
+               "  encrypt_sensitive_processes failed\n"
+            , __FILE__, __LINE__, __func__
+            );
+		goto Platform_wake;
+    }
+
 	error = disable_nonboot_cpus();
 	if (error || suspend_test(TEST_CPUS))
 		goto Enable_cpus;
 
 	arch_suspend_disable_irqs();
 	BUG_ON(!irqs_disabled());
+
+    /* busy_wait(SUSPEND_BUSY_WAIT_SEC); */
 
 	error = syscore_suspend();
 	if (!error) {
@@ -256,6 +485,7 @@ static void suspend_finish(void)
 	suspend_thaw_processes();
 	pm_notifier_call_chain(PM_POST_SUSPEND);
 	pm_restore_console();
+    notify_suspend();
 }
 
 /**
@@ -339,3 +569,12 @@ int pm_suspend(suspend_state_t state)
 	return error;
 }
 EXPORT_SYMBOL(pm_suspend);
+
+static int suspend_init(void)
+{
+    int ret;
+    ret = setup_suspend_crypto_thread();
+    return ret;
+}
+
+core_initcall(suspend_init);

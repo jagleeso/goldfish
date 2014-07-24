@@ -19,6 +19,8 @@ extern int pmdp_set_access_flags(struct vm_area_struct *vma,
 				 pmd_t entry, int dirty);
 #endif
 
+extern pte_t ptep_test_and_set_encrypted(pte_t pte);
+
 #ifndef __HAVE_ARCH_PTEP_TEST_AND_CLEAR_YOUNG
 static inline int ptep_test_and_clear_young(struct vm_area_struct *vma,
 					    unsigned long address,

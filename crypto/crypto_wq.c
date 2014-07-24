@@ -21,16 +21,23 @@ EXPORT_SYMBOL_GPL(kcrypto_wq);
 
 static int __init crypto_wq_init(void)
 {
+#ifdef CONFIG_TCM_WORKQUEUE
+    kcrypto_wq = system_tcm_wq;
+#else
 	kcrypto_wq = alloc_workqueue("crypto",
 				     WQ_MEM_RECLAIM | WQ_CPU_INTENSIVE, 1);
 	if (unlikely(!kcrypto_wq))
 		return -ENOMEM;
+#endif
 	return 0;
 }
 
 static void __exit crypto_wq_exit(void)
 {
+#ifdef CONFIG_TCM_WORKQUEUE
+#else
 	destroy_workqueue(kcrypto_wq);
+#endif
 }
 
 module_init(crypto_wq_init);

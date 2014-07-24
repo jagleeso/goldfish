@@ -67,6 +67,7 @@
 
 #include "internal.h"
 
+#include <linux/mem_encrypt.h>
 #ifndef CONFIG_NEED_MULTIPLE_NODES
 /* use the per-pgdat data instead for discontigmem - mbligh */
 unsigned long max_mapnr;
@@ -871,6 +872,7 @@ copy_one_pte(struct mm_struct *dst_mm, struct mm_struct *src_mm,
 					 */
 					make_migration_entry_read(&entry);
 					pte = swp_entry_to_pte(entry);
+					pte = ptep_test_and_set_encrypted(pte);
 					set_pte_at(src_mm, addr, src_pte, pte);
 				}
 			}
@@ -3143,6 +3145,7 @@ static int do_anonymous_page(struct mm_struct *mm, struct vm_area_struct *vma,
 	inc_mm_counter_fast(mm, MM_ANONPAGES);
 	page_add_new_anon_rmap(page, vma, address);
 setpte:
+	entry = ptep_test_and_set_encrypted(entry);
 	set_pte_at(mm, address, page_table, entry);
 
 	/* No need to invalidate - it was non-present before */
@@ -3305,6 +3308,7 @@ static int __do_fault(struct mm_struct *mm, struct vm_area_struct *vma,
 				get_page(dirty_page);
 			}
 		}
+		entry = ptep_test_and_set_encrypted(entry);
 		set_pte_at(mm, address, page_table, entry);
 
 		/* no need to invalidate: a not-present page won't be cached */
@@ -3819,6 +3823,9 @@ static int __access_remote_vm(struct task_struct *tsk, struct mm_struct *mm,
 			if (bytes > PAGE_SIZE-offset)
 				bytes = PAGE_SIZE-offset;
 
+			if (PageEncrypted(page)) {
+				decrypt_page(page);
+			}
 			maddr = kmap(page);
 			if (write) {
 				copy_to_user_page(vma, page, addr,

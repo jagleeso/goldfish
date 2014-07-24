@@ -252,7 +252,7 @@ source "kernel/Kconfig.freezer"
 menu "System Type"
 
 config TCM_HEAP
-	bool "TCM heap"
+	bool "TCM heap gen_pool allocator"
 	select GENERIC_ALLOCATOR
     help
       Configure TCM as a heap managed by a simple gen_pool allocator.
@@ -263,11 +263,30 @@ config DEBUG_TCM_HEAP
     help
       Allocate TCM heap using __get_free_pages instead of ioremap'ed physical region of TCM.
 
+config MAKE_TCM_ACCESSIBLE
+	bool "Make TCM read/write-able"
+	select TCM_HEAP
+    help
+      Set "secure_pil" to false so pas_supported() returns false.  It appears the PIL 
+      loading has insecure and secure variants.
+
 config TCM_WORKQUEUE
 	bool "TCM workqueue"
 	select TCM_HEAP
     help
       Create a workqueue of threads allocated inside the TCM.
+
+config TCM_TBOX
+	bool "TCM T-boxes"
+	select TCM_HEAP
+    help
+      Store T-boxes in TCM.
+
+config TCM_THREAD
+	bool "TCM threads"
+	select TCM_HEAP
+    help
+      Allocate threads from TCM when task_struct->tcm_resident is set.
 
 config MMU
 	bool "MMU-based Paged Memory Management Support"

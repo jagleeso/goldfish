@@ -15,6 +15,10 @@ struct subsys_desc;
 int dsps_shutdown(const struct subsys_desc *subsys);
 #endif
 
+/* Print to dmesg on alloc/free.
+ */
+/* #define DEBUG_TCM */
+
 /* Hardcore Nexus 4 TCM addresses here for now since dynamically detecting them (in tcm.c) 
  * fails because of TrustZone.
  *
@@ -143,8 +147,6 @@ int late_tcm_code_setup(void)
 {
     int ret = 0;
 
-    disable_dsps();
-
     unsigned long flags;
     spin_lock_irqsave(&tcm_init_lock, flags);
     if (initializing || initialized) {
@@ -157,6 +159,10 @@ int late_tcm_code_setup(void)
 
         /* Do any one-time intialization.
          */
+
+        disable_dsps();
+
+#ifdef CONFIG_TCM_TBOX
         ret = init_tcm_tboxes();
         if (ret) {
             MY_PRINTK("%s:%i @ %s:\n" 
@@ -165,6 +171,7 @@ int late_tcm_code_setup(void)
                 );
             goto fail_init_tcm_tboxes;
         }
+#endif
 
         ret = init_tcm_global_cwq();
         if (ret) {
@@ -256,12 +263,14 @@ void *tcm_code_alloc(size_t len)
 
     alloc_assertions;
 
+#ifdef DEBUG_TCM
     MY_PRINTK("%s:%i @ %s:\n" 
            "  len = %lu\n"
         , __FILE__, __LINE__, __func__
         , (unsigned long) len
         );
     dump_stack();
+#endif
 
 	vaddr = gen_pool_alloc(tcm_code_pool, len);
 	if (!vaddr) {
@@ -281,6 +290,7 @@ void *tcm_code_alloc_aligned(size_t len, unsigned long alignment_order)
 
     alloc_assertions;
 
+#ifdef DEBUG_TCM
     MY_PRINTK("%s:%i @ %s:\n" 
            "  len = %lu\n"
            "  alignment_order = %lu\n"
@@ -289,6 +299,7 @@ void *tcm_code_alloc_aligned(size_t len, unsigned long alignment_order)
         , alignment_order
         );
     dump_stack();
+#endif
 
 	vaddr = gen_pool_alloc_aligned(tcm_code_pool, len, alignment_order);
 	if (!vaddr) {
@@ -314,6 +325,7 @@ void tcm_code_free(void *addr)
     BUG_ON((unsigned long)addr < (unsigned long)tcm_code_offset);
     BUG_ON((unsigned long)addr > (unsigned long)tcm_code_offset + tcm_code_size - sizeof(unsigned long));
 
+#ifdef DEBUG_TCM
     MY_PRINTK("%s:%i @ %s:\n" 
            "  addr = 0x%p\n"
            "  len = %lu\n"
@@ -322,6 +334,7 @@ void tcm_code_free(void *addr)
         , (unsigned long) len
         );
     dump_stack();
+#endif
 
 	gen_pool_free(tcm_code_pool, (unsigned long) addr, len);
 }

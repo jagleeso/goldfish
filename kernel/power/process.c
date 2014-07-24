@@ -17,6 +17,7 @@
 #include <linux/delay.h>
 #include <linux/workqueue.h>
 #include <linux/kmod.h>
+#include <linux/mem_encrypt.h>
 
 /* 
  * Timeout for stopping processes
@@ -189,6 +190,10 @@ void thaw_processes(void)
 
 	read_lock(&tasklist_lock);
 	do_each_thread(g, p) {
+		/* if (to_encrypt(g)) { */
+		/* 	printk("%s skip %s - %s\n", __func__, g->comm, p->comm); */
+		/* 	continue; */
+		/* } */
 		__thaw_task(p);
 	} while_each_thread(g, p);
 	read_unlock(&tasklist_lock);

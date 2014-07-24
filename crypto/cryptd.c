@@ -119,10 +119,10 @@ static int cryptd_enqueue_request(struct cryptd_queue *queue,
 	int cpu, err;
 	struct cryptd_cpu_queue *cpu_queue;
 
-    MY_PRINTK("%s:%i @ %s:\n" 
-           "  enqueing a crypto request\n"
-        , __FILE__, __LINE__, __func__
-        );
+    /* MY_PRINTK("%s:%i @ %s:\n"  */
+    /*        "  enqueing a crypto request\n" */
+    /*     , __FILE__, __LINE__, __func__ */
+    /*     ); */
 
 	cpu = get_cpu();
 	cpu_queue = this_cpu_ptr(queue->cpu_queue);

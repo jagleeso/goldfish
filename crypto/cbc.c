@@ -99,20 +99,20 @@ static int crypto_cbc_encrypt(struct blkcipher_desc *desc,
 	struct crypto_cipher *child = ctx->child;
 	int err;
 
-    MY_PRINTK("%s:%i @ %s: crypto_cbc_encrypt (expect addresses in TCM = 0x%p..0x%p)\n" 
-           "  &walk = 0x%p\n"
-           "  &tfm = 0x%p\n"
-           "  &ctx = 0x%p\n"
-           "  &child = 0x%p\n"
-        , __FILE__, __LINE__, __func__
-        , (void *) get_tcm_code_offset()
-        , (void *) ((unsigned long)get_tcm_code_offset() + get_tcm_code_size())
-        , (void *) &walk
-        , (void *) &tfm
-        , (void *) &ctx
-        , (void *) &child
-        );
-    dump_stack();
+    /* MY_PRINTK("%s:%i @ %s: crypto_cbc_encrypt (expect addresses in TCM = 0x%p..0x%p)\n"  */
+    /*        "  &walk = 0x%p\n" */
+    /*        "  &tfm = 0x%p\n" */
+    /*        "  &ctx = 0x%p\n" */
+    /*        "  &child = 0x%p\n" */
+    /*     , __FILE__, __LINE__, __func__ */
+    /*     , (void *) get_tcm_code_offset() */
+    /*     , (void *) ((unsigned long)get_tcm_code_offset() + get_tcm_code_size()) */
+    /*     , (void *) &walk */
+    /*     , (void *) &tfm */
+    /*     , (void *) &ctx */
+    /*     , (void *) &child */
+    /*     ); */
+    /* dump_stack(); */
 
 	blkcipher_walk_init(&walk, dst, src, nbytes);
 	err = blkcipher_walk_virt(desc, &walk);

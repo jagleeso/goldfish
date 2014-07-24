@@ -59,7 +59,9 @@ static void change_pte_range(struct mm_struct *mm, pmd_t *pmd,
 			if (dirty_accountable && pte_dirty(ptent))
 				ptent = pte_mkwrite(ptent);
 
+			ptent = ptep_test_and_set_encrypted(ptent);
 			ptep_modify_prot_commit(mm, addr, pte, ptent);
+
 		} else if (IS_ENABLED(CONFIG_MIGRATION) && !pte_file(oldpte)) {
 			swp_entry_t entry = pte_to_swp_entry(oldpte);
 
@@ -68,9 +70,14 @@ static void change_pte_range(struct mm_struct *mm, pmd_t *pmd,
 				 * A protection check is difficult so
 				 * just be safe and disable write
 				 */
+				pte_t p;
 				make_migration_entry_read(&entry);
-				set_pte_at(mm, addr, pte,
-					swp_entry_to_pte(entry));
+				p = swp_entry_to_pte(entry);
+				if (PageEncrypted(pte_page(p))) {
+					printk("%s page encrypted 2\n", __func__);
+				}
+				p = ptep_test_and_set_encrypted(p);
+				set_pte_at(mm, addr, pte, p);
 			}
 		}
 	} while (pte++, addr += PAGE_SIZE, addr != end);
