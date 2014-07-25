@@ -63,7 +63,7 @@ bool encrypt_page(struct page* pg_in)
 	unsigned long pg_stats_flags;
 	
 	if (PageEncrypted(pg_in) ) {
-		/* printk("%s try to encrypt an encrypted page!!! bail out\n", __func__); */
+		printk("%s try to encrypt an encrypted page!!! bail out\n", __func__);
 		return false;
 	}
 
@@ -72,12 +72,14 @@ bool encrypt_page(struct page* pg_in)
 	ret = blkcipher_setkey(&encrypt_desc, key, 16, iv, 16);
 	if (ret < 0) {
 		printk("init_blkciper_desc failed\n");
+        BUG();
 		return false;
 	}
 
 	ret = crypto_blkcipher_encrypt(&encrypt_desc, &sg_in, &sg_in, PAGE_SIZE);
 	if (ret < 0) {
 		pr_err("crypto_blkcipher_encrypt failed(%d)\n", ret);
+        BUG();
 		return false;
 	}
 

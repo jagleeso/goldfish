@@ -1,8 +1,16 @@
 #include <asm/tlbflush.h>
 #include <linux/blk_crypto.h>
+#include <linux/sched.h>
 #include <linux/export.h>
 #include <linux/mem_encrypt.h>
 #include <linux/module.h>
+
+/* Forward decls.
+ */
+void update_pte_encrypted(struct mm_struct *mm, unsigned long linear_add, bool encrypt, struct vm_area_struct * vma);
+void update_pte_decrypted(struct mm_struct *mm, unsigned long linear_add, bool encrypt, struct vm_area_struct * vma);
+pte_t * lookup_pte(struct mm_struct * mm, unsigned long address, int lookup_pte_debug);
+pte_t* my_vir_to_pte_k(unsigned long vir);
 
 static DEFINE_SPINLOCK(lock);
 static unsigned long count_page_encrypted = 0;
@@ -27,7 +35,18 @@ unsigned int app_list_count(void)
 {
 	unsigned int i;
 
-    for (i = 0; i < APP_LIST_SIZE && app_list[i][0]; i++) {
+    for (i = 0; i < APP_LIST_SIZE; i++) {
+        if (app_list[i] == NULL) {
+            MY_PRINTK("%s:%i @ %s:\n" 
+                   "  app_list[%i] was NULL\n"
+                , __FILE__, __LINE__, __func__
+                , i
+                );
+            BUG();
+        }
+        if (app_list[i][0] == '\0') {
+            break;
+        }
     }
 	return i;
 }
@@ -140,6 +159,10 @@ void do_init(void) {
     }
     spin_unlock_irqrestore(&lock, flags);
 
+    MY_PRINTK("%s:%i @ %s:\n" 
+           "  init_blkcipher_desc\n"
+        , __FILE__, __LINE__, __func__
+        );
 	ret = init_blkcipher_desc(&encrypt_desc);
 	BUG_ON(ret < 0);
 
@@ -149,12 +172,24 @@ void do_init(void) {
 
 }
 
-void __init mem_encrypt_init(void) 
+int __init mem_encrypt_init(void) 
 {
+    int ret;
+
     printk("HELLO, INIT MEM_ENCRYPT\n");
+
+    /* Fails probably because crypto module isn't loaded...
+     */
+	/* ret = init_blkcipher_desc(&encrypt_desc); */
+	/* if (ret < 0) { */
+	/* 	printk("init_blkciper_desc failed\n"); */
+	/* 	return ret; */
+	/* } */
+
     init_app_list();
     set_app_list("com.android.browser");
     /* do_init(); */
+    return 0;
 }
 
 int encrypt_task_and_update_pte(void)
@@ -166,15 +201,19 @@ int encrypt_task_and_update_pte(void)
 	unsigned int task_encrypted = 0;
 	unsigned int task_to_encrypt = 0; 
 
+    bool flag_encrypt = true;
+
 	encrypt_task_start();
 
 	printk("%s\n", __func__ );
 
-	ret = init_blkcipher_desc(&encrypt_desc);
-	if (ret < 0) {
-		printk("init_blkciper_desc failed\n");
-		return false;
-	}
+    do_init();
+
+	/* ret = init_blkcipher_desc(&encrypt_desc); */
+	/* if (ret < 0) { */
+	/* 	printk("init_blkciper_desc failed\n"); */
+	/* 	return false; */
+	/* } */
 
 	spin_lock_irqsave(&lock, flags);
 	task_to_encrypt = app_list_count();
@@ -183,8 +222,12 @@ int encrypt_task_and_update_pte(void)
 			continue;
 
 		printk("Task %s (pid = %d) found\n",task->comm, task_pid_nr(task));
-		encrypt_task(task);
-		task->flags |= PF_ENCRYPTED;
+		encrypt_task(task, flag_encrypt);
+		if (flag_encrypt)
+            task->flags |= PF_ENCRYPTED;
+		else 
+			task->flags &= ~PF_ENCRYPTED;
+
 		task_found = true;
 		if (++task_encrypted >= task_to_encrypt)
 			break;
@@ -197,21 +240,21 @@ int encrypt_task_and_update_pte(void)
         printk("Task not found\n");
     }
 
-	updateVmallocPte();
+	updateVmallocPte(flag_encrypt);
 
 	for_each_process(task) {
-		updateTaskPte(task);
+		updateTaskPte(task, flag_encrypt);
 	} 
     if (task_found) {
         encrypt_task_finish("encrypt task");
     }
 	spin_unlock_irqrestore(&lock, flags);
-	crypto_free_blkcipher(encrypt_desc.tfm);
+	/* crypto_free_blkcipher(encrypt_desc.tfm); */
 
 	return 0;
 }
 
-void encrypt_task(struct task_struct *task)
+void encrypt_task(struct task_struct *task, bool encrypt)
 {
 	struct mm_struct *mm;
 	struct vm_area_struct *vma;
@@ -251,13 +294,89 @@ void encrypt_task(struct task_struct *task)
 }
 EXPORT_SYMBOL_GPL(encrypt_task);
 
-void encrypt_vma(struct mm_struct *mm, struct vm_area_struct *vma, int * dma_pgs)
+bool encrypt_page_and_update_pte(struct mm_struct *mm, unsigned long linear_add, bool encrypt, struct vm_area_struct * vma, int * dma_pgs, bool trace)
 {
 	struct page* pg;
 	pte_t *ptep, pte;
+
+    pg = vir_to_page(mm, linear_add);
+    /* ptep = vir_to_pte(mm, linear_add); */
+
+    ptep = lookup_pte(mm, linear_add, trace);
+    if (trace) {
+        MY_PRINTK("%s:%i @ %s:\n" 
+                "  pg = 0x%p\n"
+                "  ptep = 0x%p\n"
+                , __FILE__, __LINE__, __func__
+                , (void *) pg
+                , (void *) ptep 
+                );
+    }
+    /* if (pg == NULL || ptep == NULL) { */
+    if (pg == NULL) {
+        return false;
+    }
+    count_page_resident++;
+
+    if (vma && (vma->vm_flags & VM_RESERVED))
+        goto encrypt;
+
+    if (vma && (vma->vm_flags & VM_SHARED || vma->vm_flags & VM_MAYSHARE))
+        return false;
+
+    if (page_count(pg) > 1) {
+        if (trace) {
+            MY_PRINTK("%s:%i @ %s:\n" 
+                   "  page_count(pg) = %i\n"
+                , __FILE__, __LINE__, __func__
+                , page_count(pg)
+                );
+        }
+        return false;
+    }
+
+    if (page_mapcount(pg) == 0 && !virt_addr_valid(linear_add)) {
+        /* Kernel stack pages can have page_mapcount(pg) == 0... whyyy
+         */
+        if (trace) {
+            MY_PRINTK("%s:%i @ %s:\n" 
+                   "  page_mapcount(pg) = %i\n"
+                , __FILE__, __LINE__, __func__
+                , page_mapcount(pg)
+                );
+        }
+        return false;
+    }
+
+encrypt:
+    if (encrypt_page(pg)) {
+        if (vma && (vma->vm_flags & VM_RESERVED && dma_pgs != NULL)) { 
+            *dma_pgs += 1;
+        }
+
+		if (encrypt) {
+            update_pte_encrypted(mm, linear_add, encrypt, vma);
+		} else if (PageEncrypted(pg)) {
+            update_pte_decrypted(mm, linear_add, encrypt, vma);
+		}
+
+        count_page_encrypted++;
+        return true;
+    }
+    if (trace) {
+        MY_PRINTK("%s:%i @ %s:\n" 
+                "  encrypt_page(pg) = false\n"
+                , __FILE__, __LINE__, __func__
+                );
+    }
+    return false;
+}
+
+void encrypt_vma(struct mm_struct *mm, struct vm_area_struct *vma, int * dma_pgs)
+{
 	long unsigned int pg_count = 0;
-	unsigned long linear_add;
 	unsigned i;
+	unsigned long linear_add;
 #ifdef DEBUG
 	static unsigned long total_pg_count = 0;
 #endif
@@ -271,39 +390,32 @@ void encrypt_vma(struct mm_struct *mm, struct vm_area_struct *vma, int * dma_pgs
 	
 	linear_add = vma->vm_start;
 	for (i = 0; i < pg_count; i++, linear_add += PAGE_SIZE) {
-		pg = vir_to_page(mm, linear_add);
-		ptep = vir_to_pte(mm, linear_add);
-		if (pg == NULL || ptep == NULL) {
-			continue;
-		}
-		count_page_resident++;
-
-		if (vma->vm_flags & VM_RESERVED)
-			goto encrypt;
-
-		if (vma->vm_flags & VM_SHARED || vma->vm_flags & VM_MAYSHARE)
-			continue;
-
-		if (page_count(pg) > 1)
-			continue;
-
-		if (page_mapcount(pg) == 0) {
-			continue;
-		}
-
-encrypt:
-		if (encrypt_page(pg)) {
-            if (vma->vm_flags & VM_RESERVED && dma_pgs != NULL) { 
-                *dma_pgs += 1;
-            }
-			ptep_test_and_clear_young(vma, linear_add, ptep);
-			pte = pte_mkencrypted(*ptep);
-			set_pte_at(mm, linear_add, ptep, pte);
-			flush_tlb_page(vma, linear_add);
-			count_page_encrypted++;
-		}
+        encrypt_page_and_update_pte(mm, linear_add, true, vma, dma_pgs, false);
 	}
 }
+
+void encrypt_kernel_stack(struct task_struct* task, bool encrypt)
+{
+    unsigned long stack_page;
+    int ret;
+
+    BUG_ON(task->mm != NULL && task->mm != task->active_mm);
+
+    do_init();
+
+    for (stack_page = (unsigned long)task->stack; 
+         stack_page - (unsigned long)task->stack < THREAD_SIZE; 
+         stack_page += PAGE_SIZE) {
+        // should i use init_mm.... it shouldn't matter if the page entry is truely shared
+        // use kernel virt_to_pte?
+        bool encrypted = encrypt_page_and_update_pte(&init_mm, stack_page, encrypt, NULL, NULL, true);
+        WARN_ONCE(!encrypted, "Kernel stack page wasn't encrypted...");
+    }
+
+    printk("> Kernel stack %sed for %s: %lu pages (%lu MB)\n",
+            encrypt ? "encrypt" : "decrypt", task->comm, THREAD_SIZE/PAGE_SIZE, THREAD_SIZE/PAGE_SIZE*4/1024);
+}
+EXPORT_SYMBOL(encrypt_kernel_stack);
 
 void decrypt_dma(struct task_struct* task)
 {
@@ -369,7 +481,7 @@ void decrypt_vma(struct mm_struct *mm, struct vm_area_struct *vma, int * pgs_dec
 	}
 }
 
-void updateVmallocPte(void)
+void updateVmallocPte(bool encrypt)
 {
 	struct vm_struct *vma;
 	unsigned long count = 0;
@@ -433,7 +545,7 @@ void updateVmallocPte(void)
 	//printk("vmalloc has %lu pages, total mem %luKB\n", count, count * PAGE_SIZE / 1024);
 }
 
-void updateTaskPte(struct task_struct *task)
+void updateTaskPte(struct task_struct *task, bool encrypt)
 {
 	struct mm_struct *mm;
 	struct vm_area_struct *vma;
@@ -446,12 +558,12 @@ void updateTaskPte(struct task_struct *task)
 
 	vma = mm->mmap;
 	for (i = 0; i < mm->map_count && vma != NULL; i++) {
-		updateVmaPte(mm, vma);
+		updateVmaPte(mm, vma, encrypt);
 		vma = vma->vm_next;
 	}
 }
 
-void updateVmaPte(struct mm_struct *mm, struct vm_area_struct *vma)
+void updateVmaPte(struct mm_struct *mm, struct vm_area_struct *vma, bool encrypt)
 {
 	struct page* pg;
 	pte_t *ptep, pte;
@@ -468,14 +580,55 @@ void updateVmaPte(struct mm_struct *mm, struct vm_area_struct *vma)
 		if (pg == NULL || ptep == NULL) {
 			continue;
 		}
-		if (PageEncrypted(pg)) {
-			ptep_test_and_clear_young(vma, linear_add, ptep);
-			pte = pte_mkencrypted(*ptep);
-			set_pte_at(mm, linear_add, ptep, pte);
-			flush_tlb_page(vma, linear_add);
+		if (encrypt && PageEncrypted(pg)) {
+            update_pte_encrypted(mm, linear_add, encrypt, vma);
+		} else if (PageEncrypted(pg)) {
+            update_pte_decrypted(mm, linear_add, encrypt, vma);
 		}
 	}
 }
+
+void update_pte_encrypted(struct mm_struct *mm, unsigned long linear_add, bool encrypt, struct vm_area_struct * vma)
+{
+    struct page* pg;
+    pte_t *ptep, pte;
+    pg = vir_to_page(mm, linear_add);
+    ptep = vir_to_pte(mm, linear_add);
+    if (pg == NULL || ptep == NULL) {
+        return;
+    }
+    if (vma) {
+        ptep_test_and_clear_young(vma, linear_add, ptep);
+    } else {
+        ptep_test_and_clear_young_mm(mm, linear_add, ptep);
+    }
+    pte = pte_mkencrypted(*ptep);
+    set_pte_at(mm, linear_add, ptep, pte);
+    if (vma) {
+        flush_tlb_page(vma, linear_add);
+    } else {
+        flush_tlb_kernel_page(linear_add);
+    }
+}
+
+void update_pte_decrypted(struct mm_struct *mm, unsigned long linear_add, bool encrypt, struct vm_area_struct * vma)
+{
+    struct page* pg;
+    pte_t *ptep, pte;
+    pg = vir_to_page(mm, linear_add);
+    ptep = vir_to_pte(mm, linear_add);
+    if (pg == NULL || ptep == NULL) {
+        return;
+    }
+    pte = pte_mkdecrypted(*ptep);
+    set_pte_at(mm, linear_add, ptep, pte);
+    if (vma) {
+        flush_tlb_page(vma, linear_add);
+    } else {
+        flush_tlb_kernel_page(linear_add);
+    }
+}
+
 /*
  Walk through the page table in the memory descriptor mm
  and find the pages corresponds to the given virtual address vir
@@ -485,6 +638,10 @@ struct page* vir_to_page(struct mm_struct *mm, unsigned long vir)
 {
 	pte_t *ptep, pte;
 	struct page* pg;
+
+    if (virt_addr_valid(vir)) {
+        return phys_to_page(virt_to_phys((void *)vir));
+    }
 
 	ptep = vir_to_pte(mm, vir);
 	if (ptep == NULL) {
@@ -527,6 +684,89 @@ pte_t* virt_to_pte_k(const unsigned long virt)
 
 	ptep = pte_offset_map(pmd, virt);
 	if (ptep == NULL)
+		goto out;
+
+	return ptep;
+
+out:
+	return NULL;
+}
+
+pte_t * lookup_pte(struct mm_struct * mm, unsigned long address, int lookup_pte_debug)
+{
+    pgd_t *pgd = NULL;
+    pud_t *pud = NULL;
+    pmd_t *pmd = NULL;
+    pte_t *ptep = NULL;
+
+    if (virt_addr_valid(address)) {
+        // then virt_to_phys(address) == physical addr....
+        MY_PRINTK("%s:%i @ %s:\n" 
+               "  virt_addr_valid(address) = true\n"
+            , __FILE__, __LINE__, __func__
+            );
+        return virt_to_pte_k(address);
+        // still doesn't work
+        /* return my_vir_to_pte_k(address); */
+    }
+
+    if (lookup_pte_debug) printk("lookup_pte(0x%p), mm = 0x%p\n", (void *)address, mm);
+
+#define STR(arg) #arg
+
+#define CHECK_PTE_BIT(indent, name, bitname) \
+    if (name##_##bitname(*name)) { \
+        if (lookup_pte_debug) printk(indent STR(bitname) " pte bit was set for " STR(name) "\n"); \
+        goto error; \
+    } \
+
+#define LOOKUP_LEVEL_WITH(indent, name, lookup_offset) \
+    name = lookup_offset; \
+    CHECK_PTE_BIT(indent, name, none); \
+    CHECK_PTE_BIT(indent, name, bad); \
+    if (lookup_pte_debug) printk(indent "found " STR(name) "\n"); \
+
+#define LOOKUP_LEVEL(indent, name, lastlevel) \
+    LOOKUP_LEVEL_WITH(indent, name, \
+            name##_offset(lastlevel, address)); \
+
+    /* LOOKUP_LEVEL_WITH("  ", pgd,  */
+    /*         pgd_offset_k(address)); */
+    LOOKUP_LEVEL("  ", pgd, mm);
+    LOOKUP_LEVEL("    ", pud, pgd);
+    LOOKUP_LEVEL("       ", pmd, pud);
+
+	ptep = pte_offset_map(pmd, address);
+	if (ptep) {
+        if (lookup_pte_debug) printk("  found pte.\n");
+    } else {
+        goto error;
+    }
+
+    return ptep;
+error:
+    if (lookup_pte_debug) printk("  failed.\n");
+    return NULL;
+}
+
+pte_t* my_vir_to_pte_k(unsigned long vir)
+{
+	pud_t *pud;
+	pmd_t *pmd;
+	pte_t *ptep;
+
+	pgd_t *pgd = swapper_pg_dir;
+
+	pud = pud_offset(pgd, vir);
+	if (pud_none(*pud) || pud_bad(*pud))
+		goto out;
+
+	pmd = pmd_offset(pud, vir);
+	if (pmd_none(*pmd) || pmd_bad(*pmd))
+		goto out;
+
+	ptep = pte_offset_map(pmd, vir);
+	if (!ptep)
 		goto out;
 
 	return ptep;

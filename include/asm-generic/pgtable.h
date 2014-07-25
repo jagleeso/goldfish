@@ -22,7 +22,7 @@ extern int pmdp_set_access_flags(struct vm_area_struct *vma,
 extern pte_t ptep_test_and_set_encrypted(pte_t pte);
 
 #ifndef __HAVE_ARCH_PTEP_TEST_AND_CLEAR_YOUNG
-static inline int ptep_test_and_clear_young(struct vm_area_struct *vma,
+static inline int ptep_test_and_clear_young_mm(struct mm_struct *mm,
 					    unsigned long address,
 					    pte_t *ptep)
 {
@@ -31,8 +31,15 @@ static inline int ptep_test_and_clear_young(struct vm_area_struct *vma,
 	if (!pte_young(pte))
 		r = 0;
 	else
-		set_pte_at(vma->vm_mm, address, ptep, pte_mkold(pte));
+		set_pte_at(mm, address, ptep, pte_mkold(pte));
 	return r;
+}
+
+static inline int ptep_test_and_clear_young(struct vm_area_struct *vma,
+					    unsigned long address,
+					    pte_t *ptep)
+{
+    return ptep_test_and_clear_young_mm(vma->vm_mm, address, ptep);
 }
 #endif
 
@@ -58,6 +65,7 @@ static inline int pmdp_test_and_clear_young(struct vm_area_struct *vma,
 	BUG();
 	return 0;
 }
+
 #endif /* CONFIG_TRANSPARENT_HUGEPAGE */
 #endif
 

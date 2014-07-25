@@ -278,11 +278,13 @@ static int do_suspend_crypto_thread(void * data)
         wait_for_completion(&args->sensitive_processes_frozen);
         init_completion(&args->sensitive_processes_frozen);
 
+#ifdef CONFIG_TCM_HEAP
         MY_PRINTK("%s:%i @ %s:\n" 
                 "  current->tcm_resident = %i\n"
                 , __FILE__, __LINE__, __func__
                 , current->tcm_resident
                 );
+#endif
 
         printk("SUSPEND: begin encryption\n");
         encrypt_task_and_update_pte();
@@ -376,6 +378,8 @@ static int suspend_enter(suspend_state_t state, bool *wakeup)
 	if (suspend_test(TEST_PLATFORM))
 		goto Platform_wake;
 
+    /* Wakeup the crypto thread to start encrypting sensitive frozen processes.
+     */
     error = encrypt_sensitive_processes();
     if (error) {
         MY_PRINTK("%s:%i @ %s:\n" 
@@ -384,6 +388,15 @@ static int suspend_enter(suspend_state_t state, bool *wakeup)
             );
 		goto Platform_wake;
     }
+    /* Now wait for the crypto thread to freeze, then encrypt its stack once we're sure 
+     * it's no longer executing.
+     *
+     * wait_task_inactive makes sure the thread is no longer on the runqueue, so it ought 
+     * to be safe to encrypt its stack.
+     */
+    wait_task_inactive(suspend_crypto_thread, 0);
+    encrypt_task(suspend_crypto_thread, true);
+    encrypt_kernel_stack(suspend_crypto_thread, true);
 
 	error = disable_nonboot_cpus();
 	if (error || suspend_test(TEST_CPUS))
@@ -474,6 +487,19 @@ int suspend_devices_and_enter(suspend_state_t state)
 	goto Resume_devices;
 }
 
+static void decrypt_and_thaw_crypto_thread(void)
+{
+    /* BUG_ON(!frozen(suspend_crypto_thread)); */
+
+    encrypt_task(suspend_crypto_thread, false);
+    encrypt_kernel_stack(suspend_crypto_thread, false);
+
+    /* read_lock(&tasklist_lock); */
+    /* __thaw_task(suspend_crypto_thread); */
+    /* read_unlock(&tasklist_lock); */
+    // TODO: set non-freezeable
+}
+
 /**
  * suspend_finish - Clean up before finishing the suspend sequence.
  *
@@ -482,6 +508,7 @@ int suspend_devices_and_enter(suspend_state_t state)
  */
 static void suspend_finish(void)
 {
+    decrypt_and_thaw_crypto_thread();
 	suspend_thaw_processes();
 	pm_notifier_call_chain(PM_POST_SUSPEND);
 	pm_restore_console();
