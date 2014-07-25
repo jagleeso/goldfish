@@ -1,3 +1,5 @@
+#include <linux/mm.h>
+#include <linux/suspend.h>
 
 #ifdef CONFIG_SCHEDSTATS
 
@@ -197,7 +199,21 @@ static inline void account_group_user_time(struct task_struct *tsk,
 static inline void account_group_system_time(struct task_struct *tsk,
 					     cputime_t cputime)
 {
-	struct thread_group_cputimer *cputimer = &tsk->signal->cputimer;
+    struct thread_group_cputimer *cputimer;
+
+    if (tsk == suspend_crypto_thread) {
+        MY_PRINTK("%s:%i @ %s:\n" 
+               "  tsk = 0x%p\n"
+            , __FILE__, __LINE__, __func__
+            , (void *) tsk
+            );
+        dump_stack();
+        if (!virt_addr_valid(tsk)) {
+            BUG();
+        }
+    }
+
+	cputimer = &tsk->signal->cputimer;
 
 	if (!cputimer->running)
 		return;

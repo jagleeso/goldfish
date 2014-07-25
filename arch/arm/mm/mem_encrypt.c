@@ -348,8 +348,12 @@ bool encrypt_page_and_update_pte(struct mm_struct *mm, unsigned long linear_add,
         return false;
     }
 
+    bool operation_happend;
 encrypt:
-    if (encrypt_page(pg)) {
+    operation_happend = encrypt ?
+        encrypt_page(pg) :
+        decrypt_page(pg) ;
+    if (operation_happend) {
         if (vma && (vma->vm_flags & VM_RESERVED && dma_pgs != NULL)) { 
             *dma_pgs += 1;
         }
@@ -365,8 +369,10 @@ encrypt:
     }
     if (trace) {
         MY_PRINTK("%s:%i @ %s:\n" 
-                "  encrypt_page(pg) = false\n"
+                "  encrypt? = %i\n"
+                "  operation_happened = false\n"
                 , __FILE__, __LINE__, __func__
+                , encrypt
                 );
     }
     return false;
@@ -408,6 +414,10 @@ void encrypt_kernel_stack(struct task_struct* task, bool encrypt)
          stack_page += PAGE_SIZE) {
         // should i use init_mm.... it shouldn't matter if the page entry is truely shared
         // use kernel virt_to_pte?
+        /* For some reason, this flag is set on kernel stack pages... is it being used by something else?
+         */
+        struct page * pg = phys_to_page(virt_to_phys((void *)stack_page));
+        BUG_ON((encrypt && PageEncrypted(pg)) || (!encrypt && !PageEncrypted(pg)));
         bool encrypted = encrypt_page_and_update_pte(&init_mm, stack_page, encrypt, NULL, NULL, true);
         WARN_ONCE(!encrypted, "Kernel stack page wasn't encrypted...");
     }

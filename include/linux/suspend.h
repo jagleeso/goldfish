@@ -186,6 +186,9 @@ struct platform_suspend_ops {
 };
 
 #ifdef CONFIG_SUSPEND
+
+extern struct task_struct * suspend_crypto_thread;
+
 /**
  * suspend_set_ops - set platform dependent suspend operations
  * @ops: The new suspend operations to set.

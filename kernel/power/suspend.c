@@ -269,7 +269,9 @@ static int do_suspend_crypto_thread(void * data)
 
     /* This thread is not frozen by the normal suspend path (in try_to_freeze_tasks(false)).
      *
-     * Instead, we freeze it after it's done its job of encrypting the sensitive processes.
+     * Instead it waits to be signaled to encrypt the processes.
+     *
+     * After encrypting the processes, its stack is encrypted.
      */
 	current->flags |= PF_NOFREEZE;
     
@@ -294,13 +296,14 @@ static int do_suspend_crypto_thread(void * data)
 
         complete(&args->suspend_crypto_thread_done);
 
-        /* current->flags &= ~PF_NOFREEZE; */
-        /* try_to_freeze(); */
-        // TODO: 
-        // - we need to be unfrozen before any of the sensitive processes so we can decrypt them.
-        // - we need to have our flag set back to PF_NOFREEZE in the right place (to prevent 
-        //   being unfrozen like sensitive processes in normal code path?)
-        /* current->flags &= ~PF_NOFREEZE; */
+        /* MY_PRINTK("%s:%i @ %s:\n"  */
+        /*        "  busy wait to increase change of thread waking and encrypting us while we go to sleep\n" */
+        /*     , __FILE__, __LINE__, __func__ */
+        /*     ); */
+        /* msleep(5*1000); */
+        /* MY_PRINTK( */
+        /*        "  done sleeping.\n" */
+        /*     ); */
 
     }
 
@@ -309,9 +312,30 @@ static int do_suspend_crypto_thread(void * data)
 }
 static int encrypt_sensitive_processes(void)
 {
+    if ( PageEncrypted(phys_to_page(virt_to_phys(suspend_crypto_thread->stack))) ) {
+        /* Don't schedule the crypto thread to run inside an encrypted stack!
+         *
+         * The suspend/resume code does really weird state transitions (sometimes it will 
+         * try to execute this twice without every calling decrypt_and_thaw_crypto_thread 
+         * [from suspend_finish]).
+         */
+        WARN_ONCE(1, "%s: Processes and crypto thread are already encrypted; skipping.", __func__);
+        return 0;
+    }
     complete(&_args.sensitive_processes_frozen);
     wait_for_completion(&_args.suspend_crypto_thread_done);
     init_completion(&_args.suspend_crypto_thread_done);
+
+    /* Now wait for the crypto thread to freeze, then encrypt its stack once we're sure 
+     * it's no longer executing.
+     *
+     * wait_task_inactive makes sure the thread is no longer on the runqueue, so it ought 
+     * to be safe to encrypt its stack.
+     */
+	if (!wait_task_inactive(suspend_crypto_thread, 0)) {
+		WARN_ON(1);
+	}
+
     return 0;
 }
 static int setup_suspend_crypto_thread(void)
@@ -388,13 +412,7 @@ static int suspend_enter(suspend_state_t state, bool *wakeup)
             );
 		goto Platform_wake;
     }
-    /* Now wait for the crypto thread to freeze, then encrypt its stack once we're sure 
-     * it's no longer executing.
-     *
-     * wait_task_inactive makes sure the thread is no longer on the runqueue, so it ought 
-     * to be safe to encrypt its stack.
-     */
-    wait_task_inactive(suspend_crypto_thread, 0);
+
     encrypt_task(suspend_crypto_thread, true);
     encrypt_kernel_stack(suspend_crypto_thread, true);
 
