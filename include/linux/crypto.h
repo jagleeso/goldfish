@@ -419,6 +419,9 @@ struct rng_tfm {
 struct crypto_tfm {
 
 	u32 crt_flags;
+#ifdef CONFIG_CRYPTO_SECURE_ALLOC
+    size_t tfm_size;
+#endif
 	
 	union {
 		struct ablkcipher_tfm ablkcipher;

@@ -288,6 +288,11 @@ config TCM_THREAD
     help
       Allocate threads from TCM when task_struct->tcm_resident is set.
 
+config DEBUG_CRYPTO_RESUME
+	bool "Thaw encrypted processes on resume"
+    help
+      Thaw processes when we wakeup from suspend (i.e. insecure, don't wait for lockscreen to unlock).
+
 config MMU
 	bool "MMU-based Paged Memory Management Support"
 	default y

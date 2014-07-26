@@ -63,7 +63,7 @@ bool encrypt_page(struct page* pg_in)
 	unsigned long pg_stats_flags;
 	
 	if (PageEncrypted(pg_in) ) {
-		printk("%s try to encrypt an encrypted page!!! bail out\n", __func__);
+		/* printk("%s try to encrypt an encrypted page!!! bail out\n", __func__); */
 		return false;
 	}
 

@@ -190,10 +190,12 @@ void thaw_processes(void)
 
 	read_lock(&tasklist_lock);
 	do_each_thread(g, p) {
-		/* if (to_encrypt(g)) { */
-		/* 	printk("%s skip %s - %s\n", __func__, g->comm, p->comm); */
-		/* 	continue; */
-		/* } */
+#ifdef CONFIG_DEBUG_CRYPTO_RESUME
+		if (to_encrypt(g)) {
+			printk("%s skip %s - %s\n", __func__, g->comm, p->comm);
+			continue;
+		}
+#endif
 		__thaw_task(p);
 	} while_each_thread(g, p);
 	read_unlock(&tasklist_lock);

@@ -354,19 +354,22 @@ void crypto_shoot_alg(struct crypto_alg *alg)
 }
 EXPORT_SYMBOL_GPL(crypto_shoot_alg);
 
-struct crypto_tfm *__crypto_alloc_tfm(struct crypto_alg *alg, u32 type,
-				      u32 mask)
+struct crypto_tfm *__crypto_alloc_tfm_with(void * (*alloc_fun)(size_t size, gfp_t flags), 
+        struct crypto_alg *alg, u32 type, u32 mask)
 {
 	struct crypto_tfm *tfm = NULL;
 	unsigned int tfm_size;
 	int err = -ENOMEM;
 
 	tfm_size = sizeof(*tfm) + crypto_ctxsize(alg, type, mask);
-	tfm = crypto_kzalloc(tfm_size, GFP_KERNEL);
+	tfm = alloc_fun(tfm_size, GFP_KERNEL);
 	if (tfm == NULL)
 		goto out_err;
 
 	tfm->__crt_alg = alg;
+#ifdef CONFIG_CRYPTO_SECURE_ALLOC
+    tfm->tfm_size = tfm_size;
+#endif
 
 	err = crypto_init_ops(tfm, type, mask);
 	if (err)
@@ -388,7 +391,53 @@ out_err:
 out:
 	return tfm;
 }
+struct crypto_tfm *__crypto_alloc_tfm(struct crypto_alg *alg, u32 type,
+				      u32 mask)
+{
+    return __crypto_alloc_tfm_with(crypto_kzalloc, alg, type, mask);
+}
 EXPORT_SYMBOL_GPL(__crypto_alloc_tfm);
+
+struct crypto_tfm *__crypto_alloc_tfm_insecure(struct crypto_alg *alg, u32 type,
+				      u32 mask)
+{
+    return __crypto_alloc_tfm_with(kzalloc, alg, type, mask);
+}
+EXPORT_SYMBOL_GPL(__crypto_alloc_tfm_insecure);
+
+#ifdef CONFIG_CRYPTO_SECURE_ALLOC
+struct crypto_tfm * get_crypto_tfm(struct crypto_tfm * tcm_copy)
+{
+    struct crypto_tfm * dram_copy = kmalloc(tcm_copy->tfm_size, GFP_KERNEL);
+    if (!dram_copy) {
+        return NULL;
+    }
+    memcpy(dram_copy, tcm_copy, src->tfm_size);
+    return dram_copy;
+}
+EXPORT_SYMBOL_GPL(get_crypto_tfm);
+
+void put_crypto_tfm(struct crypto_tfm * dram_copy)
+{
+    /* Zero out the crypto transform and its ctxt (containing the expanded round key).
+     */
+    kzfree(dram_copy);
+}
+EXPORT_SYMBOL_GPL(get_crypto_tfm);
+#else /* !CONFIG_CRYPTO_SECURE_ALLOC */
+struct crypto_tfm * get_crypto_tfm(struct crypto_tfm * dram_copy)
+{
+    return dram_copy;
+}
+EXPORT_SYMBOL_GPL(get_crypto_tfm);
+
+void put_crypto_tfm(struct crypto_tfm * dram_copy)
+{
+}
+EXPORT_SYMBOL_GPL(get_crypto_tfm);
+#endif
+
+// TODO: abstract into function that takes alloc function to use to allow deep copy impl
 
 /*
  *	crypto_alloc_base - Locate algorithm and allocate transform

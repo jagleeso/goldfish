@@ -5,6 +5,7 @@
 #include <linux/slab.h>
 #include <linux/delay.h>
 #include <linux/workqueue.h>
+#include <linux/suspend.h>
 #include <asm/mach/map.h>
 
 #include <crypto/aes.h>
@@ -182,9 +183,20 @@ int late_tcm_code_setup(void)
             goto fail_init_tcm_global_cwq;
         }
 
+        ret = late_setup_tcm_crypto_thread();
+        if (ret) {
+            MY_PRINTK("%s:%i @ %s:\n" 
+                   "  init_tcm_global_cwq FAILED.\n"
+                , __FILE__, __LINE__, __func__
+                );
+            goto fail_late_setup_tcm_crypto_thread;
+        }
+
         initialized = 1;
     }
 
+fail_late_setup_tcm_crypto_thread:
+    // revert globalcwq
 fail_init_tcm_global_cwq:
     /* TODO: revert tboxes to static ones */
 fail_init_tcm_tboxes:
@@ -424,6 +436,18 @@ int __init setup_tcm_memory(void)
     if (ret) {
         goto failure;
     }
+
+#if defined CONFIG_ARCH_GOLDFISH && defined CONFIG_TCM_HEAP
+    /* On Nexus 4, we need to initialize TCM late ... not sure exactly when 
+     * it's ok, but inserting a module to do it seems late enough.
+     *
+     * On goldfish, it's just backed by regular memory so it's ok to do it now.
+     */
+    ret = late_tcm_code_setup();
+    if (ret) {
+        goto failure;
+    }
+#endif
 
     return 0;
 

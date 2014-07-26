@@ -202,12 +202,6 @@ static inline void account_group_system_time(struct task_struct *tsk,
     struct thread_group_cputimer *cputimer;
 
     if (tsk == suspend_crypto_thread) {
-        MY_PRINTK("%s:%i @ %s:\n" 
-               "  tsk = 0x%p\n"
-            , __FILE__, __LINE__, __func__
-            , (void *) tsk
-            );
-        dump_stack();
         if (!virt_addr_valid(tsk)) {
             BUG();
         }

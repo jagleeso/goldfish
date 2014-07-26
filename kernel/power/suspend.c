@@ -251,21 +251,39 @@ void __attribute__ ((weak)) arch_suspend_enable_irqs(void)
 /*  */
 /* } */
 
-struct suspend_crypto_thread_args {
+struct crypto_args {
     struct completion suspend_crypto_thread_done;
     struct completion sensitive_processes_frozen;
+    struct completion suspend_crypto_thread_inactive;
+    struct completion suspend_crypto_thread_encrypted;
+    spinlock_t encrypt_request_lock;
+    bool encrypt;
     int return_code;
 } _args;
+static DEFINE_SPINLOCK(init_args_lock);
+static int args_initialized = 0;
 void init_args(void) 
 {
+    unsigned long flags;
+    spin_lock_irqsave(&init_args_lock, flags);
+    if (args_initialized) {
+        goto done;
+    }
     init_completion(&_args.sensitive_processes_frozen);
     init_completion(&_args.suspend_crypto_thread_done);
+    init_completion(&_args.suspend_crypto_thread_inactive);
+    init_completion(&_args.suspend_crypto_thread_encrypted);
+	spin_lock_init(&_args.encrypt_request_lock);
+    _args.encrypt = true;
     _args.return_code = 0;
+    args_initialized = 1;
+done:
+    spin_unlock_irqrestore(&init_args_lock, flags);
 }
 struct task_struct * suspend_crypto_thread;
 static int do_suspend_crypto_thread(void * data)
 {
-    struct suspend_crypto_thread_args * args = data;
+    struct crypto_args * args = data;
 
     /* This thread is not frozen by the normal suspend path (in try_to_freeze_tasks(false)).
      *
@@ -277,6 +295,8 @@ static int do_suspend_crypto_thread(void * data)
     
     while (true) {
 
+        /* Wait for processes to be frozen before encrypting them.
+         */
         wait_for_completion(&args->sensitive_processes_frozen);
         init_completion(&args->sensitive_processes_frozen);
 
@@ -310,6 +330,77 @@ static int do_suspend_crypto_thread(void * data)
     do_exit(0);
     return 0;
 }
+
+struct task_struct * tcm_crypto_thread = NULL;
+static void wait_for_encrypt_crypto_thread(struct crypto_args * args, bool encrypt);
+static void encrypt_crypto_thread(struct crypto_args * args);
+
+static void wait_for_encrypt_crypto_thread(struct crypto_args * args, bool encrypt)
+{
+    unsigned long flags;
+    spin_lock_irqsave(&args->encrypt_request_lock, flags);
+    args->encrypt = encrypt;
+    spin_unlock_irqrestore(&args->encrypt_request_lock, flags);
+    if (tcm_code_initialized() && tcm_crypto_thread != NULL) {
+        /* Get TCM crypto thread to encrypt the stack of the process encryption thread.
+         */
+        complete(&_args.suspend_crypto_thread_inactive);
+        wait_for_completion(&_args.suspend_crypto_thread_encrypted);
+        init_completion(&_args.suspend_crypto_thread_encrypted);
+    } else {
+        /* TCM isn't setup yet from module insertion; just encrypt insecurely.
+         */
+        encrypt_crypto_thread(args);
+    }
+
+}
+static void encrypt_crypto_thread(struct crypto_args * args)
+{
+    bool encrypt;
+    unsigned long flags;
+    spin_lock_irqsave(&args->encrypt_request_lock, flags);
+    encrypt = args->encrypt;
+    spin_unlock_irqrestore(&args->encrypt_request_lock, flags);
+#ifdef CONFIG_TCM_HEAP
+    MY_PRINTK("%s:%i @ %s:\n" 
+            "  current->tcm_resident = %i\n"
+            , __FILE__, __LINE__, __func__
+            , current->tcm_resident
+            );
+#endif
+    encrypt_task(suspend_crypto_thread, encrypt);
+    encrypt_kernel_stack(suspend_crypto_thread, encrypt);
+}
+static int do_tcm_crypto_thread(void * data)
+{
+    struct crypto_args * args = data;
+
+    /* This thread is not frozen by the normal suspend path (in try_to_freeze_tasks(false)).
+     *
+     * This thread waits for the CPU encrypted thread to encrypt the sensitive processes 
+     * and for that thread to become inactive, then it encrypts its kernel stack (since it 
+     * may contain sensitive state).
+     *
+     * This thread's stack doesn't need to be encrypted since it's allocated from TCM.
+     */
+	current->flags |= PF_NOFREEZE;
+    
+    while (true) {
+
+        /* Wait suspend crypto thread to become inactive (not using its stack) before encrypting it.
+         */
+        wait_for_completion(&args->suspend_crypto_thread_inactive);
+        init_completion(&args->suspend_crypto_thread_inactive);
+
+        encrypt_crypto_thread(args);
+
+        complete(&args->suspend_crypto_thread_encrypted);
+
+    }
+
+    do_exit(0);
+    return 0;
+}
 static int encrypt_sensitive_processes(void)
 {
     if ( PageEncrypted(phys_to_page(virt_to_phys(suspend_crypto_thread->stack))) ) {
@@ -335,6 +426,10 @@ static int encrypt_sensitive_processes(void)
 	if (!wait_task_inactive(suspend_crypto_thread, 0)) {
 		WARN_ON(1);
 	}
+
+    /* Encrypt the stack of suspend_crypto_thread.
+     */
+    wait_for_encrypt_crypto_thread(&_args, true);
 
     return 0;
 }
@@ -369,6 +464,35 @@ static int setup_suspend_crypto_thread(void)
 failure:
     return ret;
 }
+
+/* TCM is setup on module insertion (otherwise just encrypted insecurely).
+ */
+int late_setup_tcm_crypto_thread(void)
+{
+    int ret = 0;
+
+    init_args();
+
+    current->tcm_resident = 1;
+    tcm_crypto_thread = kthread_create(do_tcm_crypto_thread, &_args, "do_tcm_crypto_thread");
+    current->tcm_resident = 0;
+    MY_PRINTK("%s:%i @ %s:\n" 
+            "  tcm_crypto_thread = 0x%p\n"
+            , __FILE__, __LINE__, __func__
+            , (void *) tcm_crypto_thread
+            );
+	if (IS_ERR(tcm_crypto_thread)) {
+		MY_PRINTK("  %s - kthread_create() failed\n", __func__);
+        ret = PTR_ERR(tcm_crypto_thread);
+        goto failure;
+	}
+	wake_up_process(tcm_crypto_thread);
+
+    return 0;
+failure:
+    return ret;
+}
+EXPORT_SYMBOL(late_setup_tcm_crypto_thread);
 
 /**
  * suspend_enter - Make the system enter the given sleep state.
@@ -412,9 +536,6 @@ static int suspend_enter(suspend_state_t state, bool *wakeup)
             );
 		goto Platform_wake;
     }
-
-    encrypt_task(suspend_crypto_thread, true);
-    encrypt_kernel_stack(suspend_crypto_thread, true);
 
 	error = disable_nonboot_cpus();
 	if (error || suspend_test(TEST_CPUS))
@@ -509,8 +630,9 @@ static void decrypt_and_thaw_crypto_thread(void)
 {
     /* BUG_ON(!frozen(suspend_crypto_thread)); */
 
-    encrypt_task(suspend_crypto_thread, false);
-    encrypt_kernel_stack(suspend_crypto_thread, false);
+    /* Encrypt the stack of suspend_crypto_thread.
+     */
+    wait_for_encrypt_crypto_thread(&_args, false);
 
     /* read_lock(&tasklist_lock); */
     /* __thaw_task(suspend_crypto_thread); */

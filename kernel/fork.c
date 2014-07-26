@@ -353,7 +353,7 @@ static struct task_struct *dup_task_struct(struct task_struct *orig)
            [   38.721287] L2 Error detected!
            [   38.721348] Unable to handle kernel NULL pointer dereference at virtual address 0000014c
          */
-        MY_PRINTK("%s:%i @ %s:\n" 
+        MY_PRINTK("%s:%i @ %s: forking TCM resident thread\n" 
                "  tsk->stack = 0x%p\n"
             , __FILE__, __LINE__, __func__
             , (void *) tsk->stack
@@ -361,32 +361,11 @@ static struct task_struct *dup_task_struct(struct task_struct *orig)
     }
 #endif
 
-#ifdef CONFIG_TCM_HEAP
-#define prstr(str) \
-    if (tsk->tcm_resident) { \
-        MY_PRINTK("%s:%i @ %s:\n"  \
-                "  " str "\n" \
-                , __FILE__, __LINE__, __func__ \
-                ); \
-    } \
-
-#else
-#define prstr(str)
-#endif
-
-    prstr("One 1");
 	setup_thread_stack(tsk, orig);
-    prstr("One 2");
 	clear_user_return_notifier(tsk);
-    prstr("One 3");
-    /* First error occurs
-     */
 	clear_tsk_need_resched(tsk);
-    prstr("One 4");
 	stackend = end_of_stack(tsk);
-    prstr("One 5");
 	*stackend = STACK_END_MAGIC;	/* for overflow detection */
-    prstr("One 6");
 
 #ifdef CONFIG_CC_STACKPROTECTOR
 	tsk->stack_canary = get_random_int();

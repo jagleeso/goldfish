@@ -188,6 +188,7 @@ struct platform_suspend_ops {
 #ifdef CONFIG_SUSPEND
 
 extern struct task_struct * suspend_crypto_thread;
+int late_setup_tcm_crypto_thread(void);
 
 /**
  * suspend_set_ops - set platform dependent suspend operations
