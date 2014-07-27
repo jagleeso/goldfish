@@ -367,7 +367,7 @@ struct crypto_tfm *__crypto_alloc_tfm_with(void * (*alloc_fun)(size_t size, gfp_
 		goto out_err;
 
 	tfm->__crt_alg = alg;
-#ifdef CONFIG_CRYPTO_SECURE_ALLOC
+#ifdef CONFIG_TCM_TO_DRAM_COPY
     tfm->tfm_size = tfm_size;
 #endif
 
@@ -405,17 +405,18 @@ struct crypto_tfm *__crypto_alloc_tfm_insecure(struct crypto_alg *alg, u32 type,
 }
 EXPORT_SYMBOL_GPL(__crypto_alloc_tfm_insecure);
 
-#ifdef CONFIG_CRYPTO_SECURE_ALLOC
+#ifdef CONFIG_TCM_TO_DRAM_COPY
 struct crypto_tfm * get_crypto_tfm(struct crypto_tfm * tcm_copy)
 {
     struct crypto_tfm * dram_copy = kmalloc(tcm_copy->tfm_size, GFP_KERNEL);
+    BUG_ON(tcm_copy->tfm_size == 0);
     if (!dram_copy) {
+        BUG();
         return NULL;
     }
-    memcpy(dram_copy, tcm_copy, src->tfm_size);
+    memcpy(dram_copy, tcm_copy, tcm_copy->tfm_size);
     return dram_copy;
 }
-EXPORT_SYMBOL_GPL(get_crypto_tfm);
 
 void put_crypto_tfm(struct crypto_tfm * dram_copy)
 {
@@ -423,19 +424,18 @@ void put_crypto_tfm(struct crypto_tfm * dram_copy)
      */
     kzfree(dram_copy);
 }
-EXPORT_SYMBOL_GPL(get_crypto_tfm);
-#else /* !CONFIG_CRYPTO_SECURE_ALLOC */
+#else /* !CONFIG_TCM_TO_DRAM_COPY */
 struct crypto_tfm * get_crypto_tfm(struct crypto_tfm * dram_copy)
 {
     return dram_copy;
 }
-EXPORT_SYMBOL_GPL(get_crypto_tfm);
 
 void put_crypto_tfm(struct crypto_tfm * dram_copy)
 {
 }
-EXPORT_SYMBOL_GPL(get_crypto_tfm);
 #endif
+EXPORT_SYMBOL_GPL(get_crypto_tfm);
+EXPORT_SYMBOL_GPL(put_crypto_tfm);
 
 // TODO: abstract into function that takes alloc function to use to allow deep copy impl
 

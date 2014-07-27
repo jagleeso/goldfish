@@ -276,6 +276,13 @@ config TCM_WORKQUEUE
     help
       Create a workqueue of threads allocated inside the TCM.
 
+config TCM_TO_DRAM_COPY
+	bool "TCM to DRAM copy before use"
+	select TCM_HEAP
+    help
+      Copy TCM allocated secure state (transforms, which contain expanded round keys 
+      for AES) to DRAM then zero after use. TCM is too slow to execute with.
+
 config TCM_TBOX
 	bool "TCM T-boxes"
 	select TCM_HEAP
@@ -292,6 +299,9 @@ config DEBUG_CRYPTO_RESUME
 	bool "Thaw encrypted processes on resume"
     help
       Thaw processes when we wakeup from suspend (i.e. insecure, don't wait for lockscreen to unlock).
+
+config MEM_ENCRYPT_PRINT_PAGE_DEC
+	bool "Print decrypted pages"
 
 config MMU
 	bool "MMU-based Paged Memory Management Support"

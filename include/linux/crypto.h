@@ -416,10 +416,13 @@ struct rng_tfm {
 #define crt_compress	crt_u.compress
 #define crt_rng		crt_u.rng
 
+void put_crypto_tfm(struct crypto_tfm * dram_copy);
+struct crypto_tfm * get_crypto_tfm(struct crypto_tfm * tcm_copy);
+
 struct crypto_tfm {
 
 	u32 crt_flags;
-#ifdef CONFIG_CRYPTO_SECURE_ALLOC
+#ifdef CONFIG_TCM_TO_DRAM_COPY
     size_t tfm_size;
 #endif
 	
@@ -820,6 +823,7 @@ static inline struct ablkcipher_request *ablkcipher_request_cast(
 	return container_of(req, struct ablkcipher_request, base);
 }
 
+// TODO: allocate from tcm in same way as tfm.
 static inline struct ablkcipher_request *ablkcipher_request_alloc(
 	struct crypto_ablkcipher *tfm, gfp_t gfp)
 {
@@ -1053,6 +1057,8 @@ static inline struct crypto_blkcipher *crypto_alloc_blkcipher(
 static inline struct crypto_tfm *crypto_blkcipher_tfm(
 	struct crypto_blkcipher *tfm)
 {
+    BUG_ON(tfm == NULL);
+    BUG_ON((void *)&tfm->base != (void *)tfm);
 	return &tfm->base;
 }
 
@@ -1128,6 +1134,10 @@ static inline int crypto_blkcipher_setkey(struct crypto_blkcipher *tfm,
 						 key, keylen);
 }
 
+#if defined CONFIG_TCM_WORKQUEUE && defined CONFIG_TCM_TO_DRAM_COPY
+#error "You can only define one of CONFIG_TCM_WORKQUEUE or CONFIG_TCM_TO_DRAM_COPY"
+#endif
+
 #ifdef CONFIG_TCM_WORKQUEUE
 
 #define DEFINE_CRYPTO_WORK_FUNC_BLKCIPHER(name, func_body, return_expr) \
@@ -1190,15 +1200,64 @@ static inline int crypto_blkcipher_decrypt_iv(struct blkcipher_desc *desc,
     DEFINE_CRYPTO_FUNC_BODY_BLKCHIPER(crypto_blkcipher_decrypt_iv);
 
 #else /* !CONFIG_TCM_WORKQUEUE */
+#ifdef CONFIG_TCM_TO_DRAM_COPY
+
+#define DEFINE_TCM_TO_DRAM_BODY(tfm_var_type, tfm_var, func_body, return_expr) \
+{ \
+    int __ret;  \
+ \
+    /* Allocate DRAM tfm. */ \
+    tfm_var_type __tcm_tfm = tfm_var; \
+    tfm_var_type __dram_tfm = (tfm_var_type) get_crypto_tfm((struct crypto_tfm *)__tcm_tfm); \
+ \
+    BGZ(__tcm_tfm == NULL); \
+    BGZ(__dram_tfm == NULL); \
+    /* Replace TCM tfm with DRAM tfm */ \
+    tfm_var = __dram_tfm; \
+ \
+    ({ \
+     func_body; \
+     __ret = return_expr; \
+     }); \
+ \
+    /* Put TCM tfm back. */ \
+    tfm_var = __tcm_tfm; \
+ \
+    /* Securely deallocate DRAM tfm. */ \
+    put_crypto_tfm((struct crypto_tfm *)__dram_tfm); \
+ \
+    return __ret; \
+} \
 
 static inline int crypto_blkcipher_encrypt(struct blkcipher_desc *desc,
 					   struct scatterlist *dst,
 					   struct scatterlist *src,
 					   unsigned int nbytes)
-{
-	desc->info = crypto_blkcipher_crt(desc->tfm)->iv;
-	return crypto_blkcipher_crt(desc->tfm)->encrypt(desc, dst, src, nbytes);
-}
+    DEFINE_TCM_TO_DRAM_BODY(struct crypto_blkcipher *, desc->tfm,
+            desc->info = crypto_blkcipher_crt(desc->tfm)->iv;
+            ,
+            crypto_blkcipher_crt(desc->tfm)->encrypt(desc, dst, src, nbytes);
+            )
+
+static inline int crypto_blkcipher_decrypt(struct blkcipher_desc *desc,
+					   struct scatterlist *dst,
+					   struct scatterlist *src,
+					   unsigned int nbytes)
+    DEFINE_TCM_TO_DRAM_BODY(struct crypto_blkcipher *, desc->tfm,
+        desc->info = crypto_blkcipher_crt(desc->tfm)->iv;
+        ,
+        crypto_blkcipher_crt(desc->tfm)->decrypt(desc, dst, src, nbytes)
+        )
+
+static inline int crypto_blkcipher_decrypt_iv(struct blkcipher_desc *desc,
+					      struct scatterlist *dst,
+					      struct scatterlist *src,
+					      unsigned int nbytes)
+    DEFINE_TCM_TO_DRAM_BODY(struct crypto_blkcipher *, desc->tfm, ,
+        crypto_blkcipher_crt(desc->tfm)->decrypt(desc, dst, src, nbytes);
+        )
+
+#else /* !CONFIG_TCM_WORKQUEUE && !CONFIG_TCM_TO_DRAM_COPY */
 
 static inline int crypto_blkcipher_encrypt_iv(struct blkcipher_desc *desc,
 					      struct scatterlist *dst,
@@ -1225,6 +1284,7 @@ static inline int crypto_blkcipher_decrypt_iv(struct blkcipher_desc *desc,
 	return crypto_blkcipher_crt(desc->tfm)->decrypt(desc, dst, src, nbytes);
 }
 
+#endif /* CONFIG_TCM_TO_DRAM_COPY */
 #endif /* CONFIG_TCM_WORKQUEUE */
 
 

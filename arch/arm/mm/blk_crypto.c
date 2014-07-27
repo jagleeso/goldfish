@@ -126,7 +126,9 @@ bool decrypt_page(struct page* pg_in)
 		spin_unlock_irqrestore(&lock, flags);
 		goto error;
 	}
-	/* printk("%s:page decrypted @pfn by %s: %lu\n", __func__, current->comm, page_to_pfn(pg_in)); */
+#ifdef CONFIG_MEM_ENCRYPT_PRINT_PAGE_DEC
+	printk("%s:page decrypted @pfn by %s: %lu\n", __func__, current->comm, page_to_pfn(pg_in));
+#endif
 	ClearPageEncrypted(pg_in);
 
     /* Modify pg_stats (don't need to grab pg_stats_lock since we have lock).

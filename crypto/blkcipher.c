@@ -402,6 +402,7 @@ static int async_setkey(struct crypto_ablkcipher *tfm, const u8 *key,
 	return setkey(crypto_ablkcipher_tfm(tfm), key, keylen);
 }
 
+// TODO: create a copy of blkcipher_desc from TCM allocated copy.
 static int async_encrypt(struct ablkcipher_request *req)
 {
 	struct crypto_tfm *tfm = req->base.tfm;

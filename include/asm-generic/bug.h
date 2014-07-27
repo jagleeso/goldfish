@@ -59,6 +59,17 @@ struct bug_entry {
 
 #ifndef HAVE_ARCH_BUG_ON
 #define BUG_ON(condition) do { if (unlikely(condition)) BUG(); } while(0)
+#define BGZ(condition) \
+    do { \
+        if (unlikely(condition)) {  \
+            MY_PRINTK("%s:%i @ %s:\n"  \
+                   "  " #condition "\n" \
+                , __FILE__, __LINE__, __func__ \
+                ); \
+            BUG();  \
+        }  \
+    } while(0); \
+
 #endif
 
 /*

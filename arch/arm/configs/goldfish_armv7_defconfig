@@ -196,16 +196,34 @@ CONFIG_CRYPTO_TWOFISH=y
 
 CONFIG_DEBUG_INFO=y
 
+# Make TCM read/write-able.
+CONFIG_MAKE_TCM_ACCESSIBLE=y
 CONFIG_TCM_HEAP=y
+# Use regular DRAM instead of TCM.
 CONFIG_DEBUG_TCM_HEAP=y
-CONFIG_TCM_WORKQUEUE=y
+
+# Copy TCM allocated secure state to DRAM then zero after use.
+CONFIG_TCM_TO_DRAM_COPY=y
+# Redirect crypto API calls to a workqueue of TCM resident threads.
+# CONFIG_TCM_WORKQUEUE=y
+
+# Store tboxes in TCM.
+CONFIG_TCM_TBOX=y
+# Perform dynamic crypto API memory allocations from TCM.
+CONFIG_CRYPTO_SECURE_ALLOC=y
+# TCM allocated threads when task_struct->tcm_resident = 1.
+CONFIG_TCM_THREAD=y
+# Thaw processes when we wakeup from suspend (i.e. insecure, don't wait for lockscreen to unlock).
+CONFIG_DEBUG_CRYPTO_RESUME=y
+
+# Print decrypted pages.
+CONFIG_MEM_ENCRYPT_PRINT_PAGE_DEC=y
 
 # setting it here doesn't work but do it through menuconfig works...?
 # CONFIG_MODULES=y
 # CONFIG_MODULE_UNLOAD=y
 
 CONFIG_MEMORY_HOTPLUG=y
-CONFIG_CRYPTO_SECURE_ALLOC=y
 
 CONFIG_DEBUG_LL=y
 CONFIG_DEBUG_LL_UART_NONE=y

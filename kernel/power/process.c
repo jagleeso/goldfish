@@ -190,7 +190,10 @@ void thaw_processes(void)
 
 	read_lock(&tasklist_lock);
 	do_each_thread(g, p) {
-#ifdef CONFIG_DEBUG_CRYPTO_RESUME
+#ifndef CONFIG_DEBUG_CRYPTO_RESUME
+        /* Only thaw processes once the screen is unlocked, NOT here (just waking up the 
+         * device to the lock screen).
+         */
 		if (to_encrypt(g)) {
 			printk("%s skip %s - %s\n", __func__, g->comm, p->comm);
 			continue;
